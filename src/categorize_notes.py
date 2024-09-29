@@ -45,11 +45,23 @@ def parse_notes(file_path: str) -> List[str]:
 
 
 def generate_categories(notes: List[str]) -> Categories:
-    prompt = f"Based on the following notes, generate a list of categories that best represent the content. Each category should have a name and a brief description. Respond with a JSON object containing a 'categories' key with an array of category objects, each having 'name' and 'description' fields:\n\n{' '.join(notes)}"
+    prompt = f"""below are notes I have written on a certain topic
+- provide a list of sub topics which I can use to categorise these notes
+- no sub dot points
+- ensure no categories overlap
+- carefully read the notes to understand the material, and how I personally think about it
+- align the categories with how you believe I would conceptually separate the notes, not how such topics are normally categorised in e.g. academia and industry
+- make the categories as specific as possible without increasing their quantity
+- the name of each category should be extremely non-generic & heavily informed by the contents of the notes
+
+Notes:
+{' '.join(notes)}
+
+Respond with a JSON object containing a 'categories' key with an array of category objects, each having 'name' and 'description' fields."""
 
     try:
         completion = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4-0613",
             messages=[
                 {
                     "role": "system",
@@ -90,7 +102,7 @@ def categorize_note(
 
     try:
         completion = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4-0613",
             messages=[
                 {
                     "role": "system",
