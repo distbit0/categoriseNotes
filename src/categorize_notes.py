@@ -34,21 +34,29 @@ def parse_notes(file_path: str) -> tuple[str, str, List[str]]:
     front_matter = "---\n" + parts[1] + "---\n" if len(parts) >= 3 else ""
     content = parts[2].strip() if len(parts) >= 3 else content
 
-    # Extract first line if it starts with $ or single #
+    # Extract lines starting with $ or single #
     lines = content.split("\n")
-    first_line = ""
-    if lines and (lines[0].startswith("$") or lines[0].startswith("#") and not lines[0].startswith("##")):
-        first_line = lines[0] + "\n"
-        lines = lines[1:]
+    special_lines = []
+    normal_lines = []
+    for line in lines:
+        if line.startswith("$") or (line.startswith("#") and not line.startswith("##")):
+            special_lines.append(line)
+        else:
+            normal_lines.extend(special_lines)
+            normal_lines.append(line)
+            special_lines = []
+
+    special_content = "\n".join(special_lines) + "\n" if special_lines else ""
+    content = "\n".join(normal_lines)
 
     # Filter out lines starting with ########
-    lines = [line for line in lines if not line.startswith("########")]
+    content_lines = [line for line in content.split("\n") if not line.startswith("########")]
 
     # Rejoin lines and split notes
-    content = "\n".join(lines)
+    content = "\n".join(content_lines)
     notes = [note.strip() for note in content.split("\n\n") if note.strip()]
     
-    return front_matter, first_line, notes
+    return front_matter, special_content, notes
 
 
 def generate_categories(notes: List[str]) -> Categories:
@@ -159,10 +167,10 @@ def categorize_note(
         raise
 
 
-def write_categorized_notes(file_path: str, front_matter: str, first_line: str, categorized_notes: dict):
+def write_categorized_notes(file_path: str, front_matter: str, special_content: str, categorized_notes: dict):
     with open(file_path, "w") as file:
         file.write(front_matter)
-        file.write(first_line)
+        file.write(special_content)
         for category, notes in categorized_notes.items():
             file.write(f"\n\n\n########{category}:\n")
             file.write("\n\n".join(notes))
@@ -176,7 +184,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        front_matter, first_line, notes = parse_notes(args.file_path)
+        front_matter, special_content, notes = parse_notes(args.file_path)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
 
         categories = generate_categories(notes)
@@ -191,7 +199,7 @@ def main():
                 categorized_notes[category] = []
             categorized_notes[category].append(note)
 
-        write_categorized_notes(args.file_path, front_matter, first_line, categorized_notes)
+        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes)
 
         logger.info("Categorization completed successfully")
     except Exception as e:
