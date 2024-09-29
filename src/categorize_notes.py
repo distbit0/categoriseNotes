@@ -7,7 +7,9 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 client = OpenAI()
@@ -15,7 +17,6 @@ client = OpenAI()
 
 class Category(BaseModel):
     name: str
-    description: str
 
 
 class Categories(BaseModel):
@@ -47,7 +48,7 @@ def parse_notes(file_path: str) -> List[str]:
 def generate_categories(notes: List[str]) -> Categories:
     prompt = f"""below are notes I have written on a certain topic
 - provide a list of sub topics which I can use to categorise these notes
-- no sub dot points
+- no sub dot points or descriptions
 - ensure no categories overlap
 - carefully read the notes to understand the material, and how I personally think about it
 - align the categories with how you believe I would conceptually separate the notes, not how such topics are normally categorised in e.g. academia and industry
@@ -57,15 +58,14 @@ def generate_categories(notes: List[str]) -> Categories:
 Notes:
 {' '.join(notes)}
 
-Respond with a JSON object containing a 'categories' key with an array of category objects, each having 'name' and 'description' fields."""
-
+Respond with a JSON object containing a 'categories' key with an array of category objects, each containing just a 'name' field."""
     try:
         completion = client.chat.completions.create(
             model="gpt-4o-2024-08-06",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
+                    "content": prompt,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -81,14 +81,16 @@ Respond with a JSON object containing a 'categories' key with an array of catego
             logger.error(f"JSON Decode Error: {e}")
             # Attempt to extract JSON from the response if it's not properly formatted
             try:
-                json_start = response_content.index('{')
-                json_end = response_content.rindex('}') + 1
+                json_start = response_content.index("{")
+                json_end = response_content.rindex("}") + 1
                 extracted_json = response_content[json_start:json_end]
                 categories_dict = json.loads(extracted_json)
                 return Categories.parse_obj(categories_dict)
             except (ValueError, json.JSONDecodeError) as e:
                 logger.error(f"Failed to extract JSON from response: {e}")
-                raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
+                raise ValueError(
+                    f"Failed to parse the API response as JSON. Response: {response_content}"
+                )
     except Exception as e:
         logger.error(f"Error in generate_categories: {e}")
         raise
@@ -122,14 +124,16 @@ def categorize_note(
             logger.error(f"JSON Decode Error: {e}")
             # Attempt to extract JSON from the response if it's not properly formatted
             try:
-                json_start = response_content.index('{')
-                json_end = response_content.rindex('}') + 1
+                json_start = response_content.index("{")
+                json_end = response_content.rindex("}") + 1
                 extracted_json = response_content[json_start:json_end]
                 category_dict = json.loads(extracted_json)
                 return NoteCategory.parse_obj(category_dict).category
             except (ValueError, json.JSONDecodeError) as e:
                 logger.error(f"Failed to extract JSON from response: {e}")
-                raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
+                raise ValueError(
+                    f"Failed to parse the API response as JSON. Response: {response_content}"
+                )
     except Exception as e:
         logger.error(f"Error in categorize_note: {e}")
         raise
@@ -159,7 +163,7 @@ def main():
             categorized_notes[category].append(note)
 
         for category, notes in categorized_notes.items():
-            print(f"\n{category}:")
+            print(f"\n\n\n########{category}:")
             for note in notes:
                 print(f"- {note}")
 
