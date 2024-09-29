@@ -38,13 +38,14 @@ def parse_notes(file_path: str) -> tuple[str, str, List[str]]:
     lines = content.split("\n")
     special_lines = []
     normal_lines = []
+    found_normal_line = False
     for line in lines:
-        if line.startswith("$") or (line.startswith("#") and not line.startswith("##")):
+        if not found_normal_line and (line.startswith("$") or (line.startswith("#") and not line.startswith("##"))):
             special_lines.append(line)
         else:
-            normal_lines.extend(special_lines)
+            if line.strip():  # If this is a non-empty line
+                found_normal_line = True
             normal_lines.append(line)
-            special_lines = []
 
     special_content = "\n".join(special_lines) + "\n" if special_lines else ""
     content = "\n".join(normal_lines)
