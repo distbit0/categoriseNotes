@@ -98,7 +98,7 @@ Notes:
         logger.debug(f"API Response: {response}")
 
         if response.content and isinstance(response.content[0], anthropic.types.ToolUseBlock):
-            categories_dict = json.loads(response.content[0].input)
+            categories_dict = response.content[0].input
             return Categories.parse_obj(categories_dict)
         else:
             raise ValueError(f"Unexpected response format from Claude API: {response.content}")
@@ -142,7 +142,7 @@ def categorize_note(
         logger.debug(f"API Response: {response}")
 
         if response.content and isinstance(response.content[0], anthropic.types.ToolUseBlock):
-            category_dict = json.loads(response.content[0].input)
+            category_dict = response.content[0].input
             return NoteCategory.parse_obj(category_dict).category
         else:
             raise ValueError(f"Unexpected response format from Claude API: {response.content}")
