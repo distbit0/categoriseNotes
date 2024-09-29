@@ -97,11 +97,11 @@ Notes:
 
         logger.debug(f"API Response: {response}")
 
-        if response.content and isinstance(response.content[0], dict) and response.content[0].get('type') == 'tool_use':
-            categories_dict = json.loads(response.content[0]['input'])
+        if response.content and isinstance(response.content[0], anthropic.types.ToolUseBlock):
+            categories_dict = json.loads(response.content[0].input)
             return Categories.parse_obj(categories_dict)
         else:
-            raise ValueError("Unexpected response format from Claude API")
+            raise ValueError(f"Unexpected response format from Claude API: {response.content}")
     except Exception as e:
         logger.error(f"Error in generate_categories: {e}")
         raise
@@ -141,11 +141,11 @@ def categorize_note(
 
         logger.debug(f"API Response: {response}")
 
-        if response.content and isinstance(response.content[0], dict) and response.content[0].get('type') == 'tool_use':
-            category_dict = json.loads(response.content[0]['input'])
+        if response.content and isinstance(response.content[0], anthropic.types.ToolUseBlock):
+            category_dict = json.loads(response.content[0].input)
             return NoteCategory.parse_obj(category_dict).category
         else:
-            raise ValueError("Unexpected response format from Claude API")
+            raise ValueError(f"Unexpected response format from Claude API: {response.content}")
     except Exception as e:
         logger.error(f"Error in categorize_note: {e}")
         raise
