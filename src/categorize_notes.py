@@ -1,9 +1,14 @@
 import argparse
 import json
+import logging
 from typing import List
 from pydantic import BaseModel
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 client = OpenAI()
 
@@ -42,33 +47,39 @@ def parse_notes(file_path: str) -> List[str]:
 def generate_categories(notes: List[str]) -> Categories:
     prompt = f"Based on the following notes, generate a list of categories that best represent the content. Each category should have a name and a brief description. Respond with a JSON object containing a 'categories' key with an array of category objects, each having 'name' and 'description' fields:\n\n{' '.join(notes)}"
 
-    completion = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    response_content = completion.choices[0].message.content
-    print(f"API Response: {response_content}")  # Debug print
     try:
-        categories_dict = json.loads(response_content)
-        return Categories.parse_obj(categories_dict)
-    except json.JSONDecodeError as e:
-        print(f"JSON Decode Error: {e}")
-        # Attempt to extract JSON from the response if it's not properly formatted
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+
+        response_content = completion.choices[0].message.content
+        logger.debug(f"API Response: {response_content}")
+
         try:
-            json_start = response_content.index('{')
-            json_end = response_content.rindex('}') + 1
-            extracted_json = response_content[json_start:json_end]
-            categories_dict = json.loads(extracted_json)
+            categories_dict = json.loads(response_content)
             return Categories.parse_obj(categories_dict)
-        except (ValueError, json.JSONDecodeError):
-            raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON Decode Error: {e}")
+            # Attempt to extract JSON from the response if it's not properly formatted
+            try:
+                json_start = response_content.index('{')
+                json_end = response_content.rindex('}') + 1
+                extracted_json = response_content[json_start:json_end]
+                categories_dict = json.loads(extracted_json)
+                return Categories.parse_obj(categories_dict)
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error(f"Failed to extract JSON from response: {e}")
+                raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
+    except Exception as e:
+        logger.error(f"Error in generate_categories: {e}")
+        raise
 
 
 def categorize_note(
@@ -77,33 +88,39 @@ def categorize_note(
     category_names = [cat.name for cat in categories.categories]
     prompt = f"Categorize the following note into one of these categories: {', '.join(category_names)}. Consider the context provided by the previous and next notes. Respond with a JSON object containing a 'category' field with the chosen category name.\n\nPrevious note:\n{prev_note}\n\nNote to categorize:\n{note}\n\nNext note:\n{next_note}"
 
-    completion = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    response_content = completion.choices[0].message.content
-    print(f"API Response: {response_content}")  # Debug print
     try:
-        category_dict = json.loads(response_content)
-        return NoteCategory.parse_obj(category_dict).category
-    except json.JSONDecodeError as e:
-        print(f"JSON Decode Error: {e}")
-        # Attempt to extract JSON from the response if it's not properly formatted
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+
+        response_content = completion.choices[0].message.content
+        logger.debug(f"API Response: {response_content}")
+
         try:
-            json_start = response_content.index('{')
-            json_end = response_content.rindex('}') + 1
-            extracted_json = response_content[json_start:json_end]
-            category_dict = json.loads(extracted_json)
+            category_dict = json.loads(response_content)
             return NoteCategory.parse_obj(category_dict).category
-        except (ValueError, json.JSONDecodeError):
-            raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON Decode Error: {e}")
+            # Attempt to extract JSON from the response if it's not properly formatted
+            try:
+                json_start = response_content.index('{')
+                json_end = response_content.rindex('}') + 1
+                extracted_json = response_content[json_start:json_end]
+                category_dict = json.loads(extracted_json)
+                return NoteCategory.parse_obj(category_dict).category
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error(f"Failed to extract JSON from response: {e}")
+                raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
+    except Exception as e:
+        logger.error(f"Error in categorize_note: {e}")
+        raise
 
 
 def main():
@@ -113,22 +130,31 @@ def main():
     parser.add_argument("file_path", help="Path to the markdown file containing notes.")
     args = parser.parse_args()
 
-    notes = parse_notes(args.file_path)
-    categories = generate_categories(notes)
+    try:
+        notes = parse_notes(args.file_path)
+        logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
 
-    categorized_notes = {}
-    for i, note in enumerate(notes):
-        prev_note = notes[i - 1] if i > 0 else ""
-        next_note = notes[i + 1] if i < len(notes) - 1 else ""
-        category = categorize_note(note, prev_note, next_note, categories)
-        if category not in categorized_notes:
-            categorized_notes[category] = []
-        categorized_notes[category].append(note)
+        categories = generate_categories(notes)
+        logger.info(f"Generated {len(categories.categories)} categories")
 
-    for category, notes in categorized_notes.items():
-        print(f"\n{category}:")
-        for note in notes:
-            print(f"- {note}")
+        categorized_notes = {}
+        for i, note in enumerate(notes):
+            prev_note = notes[i - 1] if i > 0 else ""
+            next_note = notes[i + 1] if i < len(notes) - 1 else ""
+            category = categorize_note(note, prev_note, next_note, categories)
+            if category not in categorized_notes:
+                categorized_notes[category] = []
+            categorized_notes[category].append(note)
+
+        for category, notes in categorized_notes.items():
+            print(f"\n{category}:")
+            for note in notes:
+                print(f"- {note}")
+
+        logger.info("Categorization completed successfully")
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+        raise
 
 
 if __name__ == "__main__":
