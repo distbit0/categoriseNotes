@@ -43,22 +43,32 @@ def generate_categories(notes: List[str]) -> Categories:
     prompt = f"Based on the following notes, generate a list of categories that best represent the content. Each category should have a name and a brief description. Respond with a JSON object containing a 'categories' key with an array of category objects, each having 'name' and 'description' fields:\n\n{' '.join(notes)}"
 
     completion = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful assistant that categorizes notes.",
+                "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
             },
             {"role": "user", "content": prompt},
         ],
     )
 
     response_content = completion.choices[0].message.content
+    print(f"API Response: {response_content}")  # Debug print
     try:
         categories_dict = json.loads(response_content)
         return Categories.parse_obj(categories_dict)
-    except json.JSONDecodeError:
-        raise ValueError("Failed to parse the API response as JSON")
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error: {e}")
+        # Attempt to extract JSON from the response if it's not properly formatted
+        try:
+            json_start = response_content.index('{')
+            json_end = response_content.rindex('}') + 1
+            extracted_json = response_content[json_start:json_end]
+            categories_dict = json.loads(extracted_json)
+            return Categories.parse_obj(categories_dict)
+        except (ValueError, json.JSONDecodeError):
+            raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
 
 
 def categorize_note(
@@ -68,22 +78,32 @@ def categorize_note(
     prompt = f"Categorize the following note into one of these categories: {', '.join(category_names)}. Consider the context provided by the previous and next notes. Respond with a JSON object containing a 'category' field with the chosen category name.\n\nPrevious note:\n{prev_note}\n\nNote to categorize:\n{note}\n\nNext note:\n{next_note}"
 
     completion = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful assistant that categorizes notes.",
+                "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
             },
             {"role": "user", "content": prompt},
         ],
     )
 
     response_content = completion.choices[0].message.content
+    print(f"API Response: {response_content}")  # Debug print
     try:
         category_dict = json.loads(response_content)
         return NoteCategory.parse_obj(category_dict).category
-    except json.JSONDecodeError:
-        raise ValueError("Failed to parse the API response as JSON")
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error: {e}")
+        # Attempt to extract JSON from the response if it's not properly formatted
+        try:
+            json_start = response_content.index('{')
+            json_end = response_content.rindex('}') + 1
+            extracted_json = response_content[json_start:json_end]
+            category_dict = json.loads(extracted_json)
+            return NoteCategory.parse_obj(category_dict).category
+        except (ValueError, json.JSONDecodeError):
+            raise ValueError(f"Failed to parse the API response as JSON. Response: {response_content}")
 
 
 def main():
