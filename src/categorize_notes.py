@@ -72,10 +72,10 @@ def generate_categories(notes: List[str]) -> Categories:
 - carefully read the notes to understand the material, and how I personally think about it
 - align the categories with how you believe I would conceptually separate the notes in my mind
 - do not align the categories with how such topics are normally categorised in e.g. academia and industry
-- categories should be very specific
-- category names should not contain colon or have more than one "part/section"
+- category names should be very specific
+- category names should not contain colon or have more than one part/section
 - category names should not contain any fluff/cringe/commentary/hype. just detailed, discriptive & utilitarian
-- the name of each category should be extremely non-generic & heavily informed by the contents of the notes
+- category names should be extremely non-generic & heavily informed by the contents of the notes
 
 
 Notes:
