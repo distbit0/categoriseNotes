@@ -61,7 +61,7 @@ Respond with a JSON object containing a 'categories' key with an array of catego
 
     try:
         completion = client.chat.completions.create(
-            model="gpt-4-0613",
+            model="gpt-4o-2024-08-06",
             messages=[
                 {
                     "role": "system",
@@ -102,7 +102,7 @@ def categorize_note(
 
     try:
         completion = client.chat.completions.create(
-            model="gpt-4-0613",
+            model="gpt-4o-2024-08-06",
             messages=[
                 {
                     "role": "system",
