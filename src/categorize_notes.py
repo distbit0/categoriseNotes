@@ -39,9 +39,13 @@ def parse_notes(file_path: str) -> List[str]:
     # Skip the first line if it starts with $
     lines = content.split("\n")
     if lines and lines[0].startswith("$"):
-        content = "\n".join(lines[1:])
+        lines = lines[1:]
 
-    # Split notes
+    # Filter out lines starting with ########
+    lines = [line for line in lines if not line.startswith("########")]
+
+    # Rejoin lines and split notes
+    content = "\n".join(lines)
     return [note.strip() for note in content.split("\n\n") if note.strip()]
 
 
@@ -164,8 +168,7 @@ def main():
 
         for category, notes in categorized_notes.items():
             print(f"\n\n\n########{category}:")
-            for note in notes:
-                print(f"- {note}")
+            print("\n\n".join(notes))
 
         logger.info("Categorization completed successfully")
     except Exception as e:
