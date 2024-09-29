@@ -3,8 +3,7 @@ import json
 import logging
 from typing import List
 from pydantic import BaseModel
-from openai import OpenAI
-from openai.types.chat import ChatCompletion
+import anthropic
 
 # Configure logging
 logging.basicConfig(
@@ -12,7 +11,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-client = OpenAI()
+client = anthropic.Anthropic()
 
 
 class Category(BaseModel):
@@ -60,41 +59,49 @@ def generate_categories(notes: List[str]) -> Categories:
 - the name of each category should be extremely non-generic & heavily informed by the contents of the notes
 
 Notes:
-{' '.join(notes)}
-
-Respond with a JSON object containing a 'categories' key with an array of category objects, each containing just a 'name' field."""
+{' '.join(notes)}"""
     try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-2024-08-06",
-            messages=[
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1024,
+            tools=[
                 {
-                    "role": "system",
-                    "content": prompt,
-                },
-                {"role": "user", "content": prompt},
+                    "name": "generate_categories",
+                    "description": "Generate categories for a set of notes",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "categories": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "Name of the category"
+                                        }
+                                    },
+                                    "required": ["name"]
+                                }
+                            }
+                        },
+                        "required": ["categories"]
+                    }
+                }
             ],
+            tool_choice={"type": "tool", "name": "generate_categories"},
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
         )
 
-        response_content = completion.choices[0].message.content
-        logger.debug(f"API Response: {response_content}")
+        logger.debug(f"API Response: {response}")
 
-        try:
-            categories_dict = json.loads(response_content)
+        if response.content and isinstance(response.content[0], dict) and response.content[0].get('type') == 'tool_use':
+            categories_dict = json.loads(response.content[0]['input'])
             return Categories.parse_obj(categories_dict)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON Decode Error: {e}")
-            # Attempt to extract JSON from the response if it's not properly formatted
-            try:
-                json_start = response_content.index("{")
-                json_end = response_content.rindex("}") + 1
-                extracted_json = response_content[json_start:json_end]
-                categories_dict = json.loads(extracted_json)
-                return Categories.parse_obj(categories_dict)
-            except (ValueError, json.JSONDecodeError) as e:
-                logger.error(f"Failed to extract JSON from response: {e}")
-                raise ValueError(
-                    f"Failed to parse the API response as JSON. Response: {response_content}"
-                )
+        else:
+            raise ValueError("Unexpected response format from Claude API")
     except Exception as e:
         logger.error(f"Error in generate_categories: {e}")
         raise
@@ -104,40 +111,41 @@ def categorize_note(
     note: str, prev_note: str, next_note: str, categories: Categories
 ) -> str:
     category_names = [cat.name for cat in categories.categories]
-    prompt = f"Categorize the following note into one of these categories: {', '.join(category_names)}. Consider the context provided by the previous and next notes. Respond with a JSON object containing a 'category' field with the chosen category name.\n\nPrevious note:\n{prev_note}\n\nNote to categorize:\n{note}\n\nNext note:\n{next_note}"
+    prompt = f"Categorize the following note into one of these categories: {', '.join(category_names)}. Consider the context provided by the previous and next notes.\n\nPrevious note:\n{prev_note}\n\nNote to categorize:\n{note}\n\nNext note:\n{next_note}"
 
     try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-2024-08-06",
-            messages=[
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1024,
+            tools=[
                 {
-                    "role": "system",
-                    "content": "You are a helpful assistant that categorizes notes. Always respond with valid JSON.",
-                },
-                {"role": "user", "content": prompt},
+                    "name": "categorize_note",
+                    "description": "Categorize a note into one of the given categories",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "description": "The chosen category name"
+                            }
+                        },
+                        "required": ["category"]
+                    }
+                }
             ],
+            tool_choice={"type": "tool", "name": "categorize_note"},
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
         )
 
-        response_content = completion.choices[0].message.content
-        logger.debug(f"API Response: {response_content}")
+        logger.debug(f"API Response: {response}")
 
-        try:
-            category_dict = json.loads(response_content)
+        if response.content and isinstance(response.content[0], dict) and response.content[0].get('type') == 'tool_use':
+            category_dict = json.loads(response.content[0]['input'])
             return NoteCategory.parse_obj(category_dict).category
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON Decode Error: {e}")
-            # Attempt to extract JSON from the response if it's not properly formatted
-            try:
-                json_start = response_content.index("{")
-                json_end = response_content.rindex("}") + 1
-                extracted_json = response_content[json_start:json_end]
-                category_dict = json.loads(extracted_json)
-                return NoteCategory.parse_obj(category_dict).category
-            except (ValueError, json.JSONDecodeError) as e:
-                logger.error(f"Failed to extract JSON from response: {e}")
-                raise ValueError(
-                    f"Failed to parse the API response as JSON. Response: {response_content}"
-                )
+        else:
+            raise ValueError("Unexpected response format from Claude API")
     except Exception as e:
         logger.error(f"Error in categorize_note: {e}")
         raise
