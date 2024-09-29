@@ -3,6 +3,7 @@ import json
 from typing import List
 from pydantic import BaseModel
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 
 client = OpenAI()
 
@@ -36,31 +37,31 @@ def parse_notes(file_path: str) -> List[str]:
 def generate_categories(notes: List[str]) -> Categories:
     prompt = f"Based on the following notes, generate a list of categories that best represent the content. Each category should have a name and a brief description:\n\n{' '.join(notes)}"
     
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-08-06",
+    completion = client.chat.completions.create(
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that categorizes notes."},
             {"role": "user", "content": prompt}
         ],
-        response_format=Categories
+        response_format={"type": "json_object"}
     )
     
-    return completion.choices[0].message.parsed
+    return Categories.parse_raw(completion.choices[0].message.content)
 
 def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories) -> str:
     category_names = [cat.name for cat in categories.categories]
     prompt = f"Categorize the following note into one of these categories: {', '.join(category_names)}. Consider the context provided by the previous and next notes.\n\nPrevious note:\n{prev_note}\n\nNote to categorize:\n{note}\n\nNext note:\n{next_note}"
     
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-08-06",
+    completion = client.chat.completions.create(
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that categorizes notes."},
             {"role": "user", "content": prompt}
         ],
-        response_format=NoteCategory
+        response_format={"type": "json_object"}
     )
     
-    return completion.choices[0].message.parsed.category
+    return NoteCategory.parse_raw(completion.choices[0].message.content).category
 
 def main():
     parser = argparse.ArgumentParser(description="Categorize notes from a markdown file.")
