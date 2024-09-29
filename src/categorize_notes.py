@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 from typing import List
 from pydantic import BaseModel
@@ -37,7 +36,7 @@ def parse_notes(file_path: str) -> List[str]:
 
     # Skip the first line if it starts with $
     lines = content.split("\n")
-    if lines and lines[0].startswith("$"):
+    if lines and lines[0].startswith("$") or lines[0].startswith("#"):
         lines = lines[1:]
 
     # Filter out lines starting with ########
@@ -49,14 +48,15 @@ def parse_notes(file_path: str) -> List[str]:
 
 
 def generate_categories(notes: List[str]) -> Categories:
-    prompt = f"""below are notes I have written on a certain topic
-- provide a list of sub topics which I can use to categorise these notes
-- no sub dot points or descriptions
+    prompt = f"""below are notes I have written on a certain topic. provide a list of sub topics which I can use to categorise these notes
 - ensure no categories overlap
-- carefully read the notes to understand the material, and how I personally think about it
-- align the categories with how you believe I would conceptually separate the notes, not how such topics are normally categorised in e.g. academia and industry
-- make the categories as specific as possible without increasing their quantity
+- carefully read the notes to understand the material, and how I personally think about it to get a feel for what categorise I would find useful
+- align the categories with how you believe I would conceptually separate the notes in my mind
+- do not align the categories with how such topics are normally categorised in e.g. academia and industry
+- make the categories as specific as possible
 - the name of each category should be extremely non-generic & heavily informed by the contents of the notes
+
+
 
 Notes:
 {' '.join(notes)}"""
@@ -78,30 +78,32 @@ Notes:
                                     "properties": {
                                         "name": {
                                             "type": "string",
-                                            "description": "Name of the category"
+                                            "description": "Name of the category",
                                         }
                                     },
-                                    "required": ["name"]
-                                }
+                                    "required": ["name"],
+                                },
                             }
                         },
-                        "required": ["categories"]
-                    }
+                        "required": ["categories"],
+                    },
                 }
             ],
             tool_choice={"type": "tool", "name": "generate_categories"},
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            messages=[{"role": "user", "content": prompt}],
         )
 
         logger.debug(f"API Response: {response}")
 
-        if response.content and isinstance(response.content[0], anthropic.types.ToolUseBlock):
+        if response.content and isinstance(
+            response.content[0], anthropic.types.ToolUseBlock
+        ):
             categories_dict = response.content[0].input
             return Categories.parse_obj(categories_dict)
         else:
-            raise ValueError(f"Unexpected response format from Claude API: {response.content}")
+            raise ValueError(
+                f"Unexpected response format from Claude API: {response.content}"
+            )
     except Exception as e:
         logger.error(f"Error in generate_categories: {e}")
         raise
@@ -126,26 +128,28 @@ def categorize_note(
                         "properties": {
                             "category": {
                                 "type": "string",
-                                "description": "The chosen category name"
+                                "description": "The chosen category name",
                             }
                         },
-                        "required": ["category"]
-                    }
+                        "required": ["category"],
+                    },
                 }
             ],
             tool_choice={"type": "tool", "name": "categorize_note"},
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            messages=[{"role": "user", "content": prompt}],
         )
 
         logger.debug(f"API Response: {response}")
 
-        if response.content and isinstance(response.content[0], anthropic.types.ToolUseBlock):
+        if response.content and isinstance(
+            response.content[0], anthropic.types.ToolUseBlock
+        ):
             category_dict = response.content[0].input
             return NoteCategory.parse_obj(category_dict).category
         else:
-            raise ValueError(f"Unexpected response format from Claude API: {response.content}")
+            raise ValueError(
+                f"Unexpected response format from Claude API: {response.content}"
+            )
     except Exception as e:
         logger.error(f"Error in categorize_note: {e}")
         raise
