@@ -1,13 +1,24 @@
 import argparse
 import re
 import logging
+import sys
 from typing import List, Tuple
 from pydantic import BaseModel
 import anthropic
 
 # Configure logging
+class ErrorOnlyFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelno >= logging.ERROR
+
+handler = logging.StreamHandler(sys.stdout)
+handler.addFilter(ErrorOnlyFilter())
+handler.setLevel(logging.ERROR)
+
 logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[handler]
 )
 logger = logging.getLogger(__name__)
 
