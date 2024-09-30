@@ -79,7 +79,7 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
 
 
 def extract_existing_categories(category_lines: List[str]) -> Categories:
-    categories = [Category(name=line[len(categoryPrefix):].strip()) for line in category_lines]
+    categories = [Category(name=line[len(categoryPrefix):].strip().strip(":")) for line in category_lines]
     return Categories(categories=categories)
 
 def generate_categories(notes: List[str]) -> Categories:
