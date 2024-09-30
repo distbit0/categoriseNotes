@@ -140,7 +140,7 @@ Notes:
         raise
 
 
-def split_note(note: str, categories: Categories) -> List[str]:
+def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     category_names = [cat.name for cat in categories.categories]
     prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
     
@@ -205,7 +205,7 @@ def split_note(note: str, categories: Categories) -> List[str]:
                 f"Unexpected response format from Claude API: {response.content}"
             )
     except Exception as e:
-        logger.error(f"Error in split_note: {e}")
+        logger.error(f"Error in split_note_if_needed: {e}")
         raise
 
 
@@ -286,7 +286,7 @@ def main():
         categorized_notes = {}
         for i, note in enumerate(notes):
             if args.split and note.count('\n') > 1:
-                split_notes = split_note(note, categories)
+                split_notes = split_note_if_needed(note, categories)
             else:
                 split_notes = [note]
 
