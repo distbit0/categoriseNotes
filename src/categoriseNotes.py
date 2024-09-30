@@ -3,7 +3,7 @@ import pyperclip
 import re
 import logging
 import sys
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from pydantic import BaseModel
 import anthropic
 
@@ -85,74 +85,6 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
 def extract_existing_categories(category_lines: List[str]) -> Categories:
     categories = [Category(name=line[len(categoryPrefix):].strip().strip(":")) for line in category_lines]
     return Categories(categories=categories)
-
-def generate_categories(notes: List[str]) -> Categories:
-    prompt = f"""below are notes I have written on a certain topic. provide a list of sub topics which I can use to categorise these notes
-- ensure there are sufficient categories to represent depth & breadth of notes
-- however also ensure no categories overlap/are redundant
-- carefully read the notes to understand the material, and how I personally think about it
-- align the categories with how you believe I would conceptually separate the notes in my mind
-- the categories should be useful groupings I can use to further develop my notes
-- do not try to align the categories with ones from academia, politics and industry
-- category names should be:
-    - very specific
-    - extremely non-generic
-    - heavily informed by the contents of the notes
-- category names should not contain:
-    - a colon or have more than one part/section
-    - any fluff/cringe/commentary/hype
-
-
-Notes:
-{' '.join(notes)}"""
-    try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=1024,
-            tools=[
-                {
-                    "name": "generate_categories",
-                    "description": "Generate categories for a set of notes",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "categories": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string",
-                                            "description": "Name of the category",
-                                        }
-                                    },
-                                    "required": ["name"],
-                                },
-                            }
-                        },
-                        "required": ["categories"],
-                    },
-                }
-            ],
-            tool_choice={"type": "tool", "name": "generate_categories"},
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        print("Categories:\n"+"\n".join([cat["name"] for cat in response.content[0].input["categories"]]))
-
-        if response.content and isinstance(
-            response.content[0], anthropic.types.ToolUseBlock
-        ):
-            categories_dict = response.content[0].input
-            return Categories.parse_obj(categories_dict)
-        else:
-            raise ValueError(
-                f"Unexpected response format from Claude API: {response.content}"
-            )
-    except Exception as e:
-        logger.error(f"Error in generate_categories: {e}")
-        raise
-
 
 def normaliseText(text: str) -> str:
     text = text.strip().lower()
@@ -340,8 +272,89 @@ def display_categories(categories: Dict[str, List[str]], source: str):
     for cat in categories.categories:
         print(f"- {cat.name}")
 
+def generate_categories(notes: List[str], existing_categories: Optional[Categories] = None, change_description: Optional[str] = None) -> Categories:
+    prompt = f"""Below are notes I have written on a certain topic. Provide a list of sub topics which I can use to categorise these notes
+- Ensure there are sufficient categories to represent depth & breadth of notes
+- However also ensure no categories overlap/are redundant
+- Carefully read the notes to understand the material, and how I personally think about it
+- Align the categories with how you believe I would conceptually separate the notes in my mind
+- The categories should be useful groupings I can use to further develop my notes
+- Do not try to align the categories with ones from academia, politics and industry
+- Category names should be:
+    - very specific
+    - extremely non-generic
+    - heavily informed by the contents of the notes
+- Category names should not contain:
+    - a colon or have more than one part/section
+    - any fluff/cringe/commentary/hype
+Notes:
+{' '.join(notes)}"""
+
+    messages = [{"role": "user", "content": prompt}]
+
+    if existing_categories and change_description:
+        # Add existing categories as a message from Claude
+        existing_categories_str = "\n".join([f"- {cat.name}" for cat in existing_categories.categories])
+        messages.append({
+            "role": "assistant",
+            "content": f"Here are the categories I've generated based on your notes:\n{existing_categories_str}"
+        })
+        
+        # Add change description as a message from the user
+        messages.append({
+            "role": "user",
+            "content": f"Please modify the categories based on this description: {change_description}"
+        })
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            tools=[
+                {
+                    "name": "generate_categories",
+                    "description": "Generate categories for a set of notes",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "categories": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "Name of the category",
+                                        }
+                                    },
+                                    "required": ["name"],
+                                },
+                            }
+                        },
+                        "required": ["categories"],
+                    },
+                }
+            ],
+            tool_choice={"type": "tool", "name": "generate_categories"},
+            messages=messages,
+        )
+        print("Categories:\n"+"\n".join([cat["name"] for cat in response.content[0].input["categories"]]))
+        if response.content and isinstance(
+            response.content[0], anthropic.types.ToolUseBlock
+        ):
+            categories_dict = response.content[0].input
+            return Categories.parse_obj(categories_dict)
+        else:
+            raise ValueError(
+                f"Unexpected response format from Claude API: {response.content}"
+            )
+    except Exception as e:
+        logger.error(f"Error in generate_categories: {e}")
+        raise
+
+
 def process_categories(notes: List[str], existing_categories: Dict[str, List[str]] = None) -> Dict[str, List[str]]:
-    categories = existing_categories
+    categories = Categories(categories=[Category(name=cat) for cat in existing_categories.keys()]) if existing_categories else None
     source = "Existing" if existing_categories else "Generated"
     
     while True:
@@ -351,14 +364,20 @@ def process_categories(notes: List[str], existing_categories: Dict[str, List[str
         
         display_categories(categories, source)
         
-        choice = get_user_choice("What would you like to do with these categories?", ["keep", "edit", "new"])
+        choice = get_user_choice("What would you like to do with these categories?", ["keep", "edit", "revise", "new"])
         if choice == "keep":
-            return categories
+            return {cat.name: [] for cat in categories.categories}
         elif choice == "edit":
             categories = edit_categories(categories)
             source = "Edited"
+        elif choice == "revise":
+            modification_description = input("Please describe how you'd like to modify the categories: ")
+            categories = generate_categories(notes, existing_categories=categories, change_description=modification_description)
+            source = "Modified"
         else:  # "new"
             categories = None  # This will trigger generation of new categories in the next iteration
+
+    return {cat.name: [] for cat in categories.categories}
 
 def categorize_notes(notes: List[str], categories: Dict[str, List[str]], split: bool) -> Dict[str, List[str]]:
     categorized_notes = {}
