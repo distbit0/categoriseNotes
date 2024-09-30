@@ -163,7 +163,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                     logger.error(original_lines)
                     raise ValueError("Splits did not occur only on newline characters.")
                 if len(split_notes) > 1:
-                    logger.info(f"Split note:\nINTO {len(split_notes)} notes:\n______________\n"+"\n________________\n".join(split_notes)+"\n______________")
+                    logger.info(f"Split one note into {len(split_notes)} notes:\n______________\n"+"\n________________\n".join(split_notes)+"\n______________")
                 return split_notes
             else:
                 raise ValueError(
@@ -336,7 +336,6 @@ Notes:
             tool_choice={"type": "tool", "name": "generate_categories"},
             messages=messages,
         )
-        print("Categories:\n"+"\n".join([cat["name"] for cat in response.content[0].input["categories"]]))
         if response.content and isinstance(
             response.content[0], anthropic.types.ToolUseBlock
         ):
