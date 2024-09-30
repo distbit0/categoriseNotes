@@ -6,17 +6,10 @@ from typing import List, Tuple
 from pydantic import BaseModel
 import anthropic
 
-# Configure logging
-class ErrorOnlyFilter(logging.Filter):
-    def filter(self, record):
-        return record.levelno >= logging.ERROR
-
 handler = logging.StreamHandler(sys.stdout)
-handler.addFilter(ErrorOnlyFilter())
-handler.setLevel(logging.ERROR)
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[handler]
 )
@@ -24,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 client = anthropic.Anthropic()
 
-categoryPrefix = "##"
+categoryPrefix = "## "
 
 
 class Category(BaseModel):
@@ -134,7 +127,7 @@ Notes:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        logger.debug(f"API Response: {response}")
+        # logger.debug(f"API Response: {response}")
         
         print("Categories:\n"+"\n".join([cat["name"] for cat in response.content[0].input["categories"]]))
 
@@ -155,19 +148,21 @@ Notes:
 def normaliseText(text: str) -> str:
     text = text.strip().lower()
     text = re.sub(r'[^a-zA-Z0-9]', '', text)
-    return text
+    return text.strip()
 
 def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     category_names = [cat.name for cat in categories.categories]
     prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
     
     Rules:
-    1. Only split the note if it's necessary for proper categorization. I.e. due to different text in the note belonging to different categories.
-    2. Only split the note if the resulting split notes make sense in isolation/can be understood independently.
-    3. Splits must only occur on newline characters.
-    4. Do not split in the middle of a line of text.
-    5. Do not add or remove any text from the original note.
-    6. The resulting split pieces must add up exactly to the original note.
+    - Only split a note if BOTH of the below conditions are met:
+        - the note contains meaningfully distinct sub-parts which very clearly do not all belong under a single one of the above categories
+        - the resulting split notes make sense in isolation, can be understood independently and do not depend on each other for context
+    - Splits must only occur on newline characters.
+    - Do not just split a note just because it has some kind of dividers/sub-sections in it. Only split it if it has sub sections which actually belong in seperate categories!
+    - Do not split in the middle of a line of text.
+    - Do not add or remove any text from the original note.
+    - The resulting split pieces must add up exactly to the original note.
 
     Note to potentially split:
     {note}
@@ -200,7 +195,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            logger.debug(f"API Response: {response}")
+            # logger.debug(f"API Response: {response}")
 
             if response.content and isinstance(
                 response.content[0], anthropic.types.ToolUseBlock
@@ -218,13 +213,19 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                     raise ValueError("The split notes do not match the original note exactly.")
 
                 # Verify that all splits occurred on newlines
-                original_lines = [normaliseText(line) for line in note.split('\n')]
-                split_lines = [normaliseText(line) for split_note in split_notes for line in split_note.split('\n')]
+                original_lines = [normaliseText(line) for line in note.split('\n') if line.strip()]
+                original_lines = [line for line in original_lines if line]
+                split_lines = [normaliseText(line) for split_note in split_notes for line in split_note.split('\n') if line.strip()]
+                split_lines = [line for line in split_lines if line]
                 if original_lines != split_lines:
                     print("New:\n"+"\n".join(split_lines))
+                    print(split_lines)
                     print("Old:\n"+"\n".join(original_lines))
+                    print(original_lines)
+                    
                     raise ValueError("Splits did not occur only on newline characters.")
-
+                if len(split_notes) > 1:
+                    logger.info(f"Split note:\nINTO {len(split_notes)} notes:\n______________\n"+"\n________________\n".join(split_notes)+"\n______________")
                 return split_notes
             else:
                 raise ValueError(
@@ -279,7 +280,7 @@ def categorize_note(
             messages=[{"role": "user", "content": prompt}],
         )
 
-        logger.debug(f"API Response: {response}")
+        # logger.debug(f"API Response: {response}")
 
         if response.content and isinstance(
             response.content[0], anthropic.types.ToolUseBlock
@@ -302,7 +303,7 @@ def write_categorized_notes(
         file.write(front_matter)
         file.write(special_content)
         for category, notes in categorized_notes.items():
-            file.write(f"\n\n\n\n\n\n\n{categoryPrefix} {category}:\n\n")
+            file.write(f"\n\n\n\n\n\n\n\n\n{categoryPrefix}{category}:\n\n")
             file.write("\n\n".join(notes))
     logger.info(f"Categorized notes written back to {file_path}")
 
