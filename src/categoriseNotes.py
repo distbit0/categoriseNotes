@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 client = anthropic.Anthropic()
 
-categoryPrefix = "## "
+categoryPrefix = "### -- "
 
 
 class Category(BaseModel):
@@ -326,18 +326,17 @@ def main():
     try:
         front_matter, special_content, notes, category_lines = parse_notes(args.file_path)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
-
+        use_existing = False
         if len(category_lines) > 1:
+            categories = extract_existing_categories(category_lines)
+            print("Categories:")
+            for cat in categories.categories:
+                print(f"- {cat.name}")
             use_existing = input("Existing categories found. Use them? (y/n): ").lower() in ["y", "yes"]
             if use_existing:
-                categories = extract_existing_categories(category_lines)
                 logger.info("Using existing categories")
-            else:
-                categories = generate_categories(notes)
-        else:
-            categories = generate_categories(notes)
 
-        categoriesRejected = True
+        categoriesRejected = not use_existing
         while categoriesRejected:
             print("Categories:")
             for cat in categories.categories:
