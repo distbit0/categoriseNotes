@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 client = anthropic.Anthropic()
 
-categoryPrefix = "### -- "
+categoryPrefix = "## -- "
 
 
 class Category(BaseModel):
