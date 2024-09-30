@@ -157,57 +157,72 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
 
     If you decide to split the note, return a list of the split notes. If no split is necessary, return a list containing only the original note."""
 
-    try:
-        response = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=1024,
-            tools=[
-                {
-                    "name": "split_note",
-                    "description": "Split a note into multiple notes if necessary",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "split_notes": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "The list of split notes or the original note if no split is necessary",
-                            }
+    for attempt in range(3):  # Try up to 3 times (original attempt + 2 retries)
+        try:
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20240620",
+                max_tokens=1024,
+                tools=[
+                    {
+                        "name": "split_note",
+                        "description": "Split a note into multiple notes if necessary",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {
+                                "split_notes": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "The list of split notes or the original note if no split is necessary",
+                                }
+                            },
+                            "required": ["split_notes"],
                         },
-                        "required": ["split_notes"],
-                    },
-                }
-            ],
-            tool_choice={"type": "tool", "name": "split_note"},
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        logger.debug(f"API Response: {response}")
-
-        if response.content and isinstance(
-            response.content[0], anthropic.types.ToolUseBlock
-        ):
-            split_notes_dict = response.content[0].input
-            split_notes = NoteSplit.parse_obj(split_notes_dict).split_notes
-
-            # Verify that the split notes add up to the original note
-            if ''.join(split_notes).strip() != note.strip():
-                raise ValueError("The split notes do not match the original note exactly.")
-
-            # Verify that all splits occurred on newlines
-            original_lines = note.split('\n')
-            split_lines = [line for split_note in split_notes for line in split_note.split('\n')]
-            if original_lines != split_lines:
-                raise ValueError("Splits did not occur only on newline characters.")
-
-            return split_notes
-        else:
-            raise ValueError(
-                f"Unexpected response format from Claude API: {response.content}"
+                    }
+                ],
+                tool_choice={"type": "tool", "name": "split_note"},
+                messages=[{"role": "user", "content": prompt}],
             )
-    except Exception as e:
-        logger.error(f"Error in split_note_if_needed: {e}")
-        raise
+
+            logger.debug(f"API Response: {response}")
+
+            if response.content and isinstance(
+                response.content[0], anthropic.types.ToolUseBlock
+            ):
+                split_notes_dict = response.content[0].input
+                split_notes = NoteSplit.parse_obj(split_notes_dict).split_notes
+
+                # Verify that the split notes add up to the original note
+                if ''.join(split_notes).strip() != note.strip():
+                    raise ValueError("The split notes do not match the original note exactly.")
+
+                # Verify that all splits occurred on newlines
+                original_lines = note.split('\n')
+                split_lines = [line for split_note in split_notes for line in split_note.split('\n')]
+                if original_lines != split_lines:
+                    raise ValueError("Splits did not occur only on newline characters.")
+
+                return split_notes
+            else:
+                raise ValueError(
+                    f"Unexpected response format from Claude API: {response.content}"
+                )
+        except Exception as e:
+            logger.error(f"Error in split_note_if_needed (attempt {attempt + 1}): {e}")
+            if attempt < 2:  # If it's not the last attempt
+                # Inform Claude about the error
+                error_prompt = f"The previous attempt to split the note failed with the following error: {str(e)}. Please try again, paying special attention to the rules and ensuring the output matches the expected format."
+                client.messages.create(
+                    model="claude-3-5-sonnet-20240620",
+                    max_tokens=100,
+                    messages=[{"role": "user", "content": error_prompt}],
+                )
+            else:
+                logger.warning("Max retries reached. Returning original note.")
+                return [note]  # Return the original note if all attempts fail
+
+    # This line should never be reached due to the return in the else block above,
+    # but we include it for completeness
+    return [note]
 
 
 def categorize_note(
