@@ -1,4 +1,5 @@
 import argparse
+import re
 import logging
 from typing import List, Tuple
 from pydantic import BaseModel
@@ -140,6 +141,11 @@ Notes:
         raise
 
 
+def normaliseText(text: str) -> str:
+    text = text.strip().lower()
+    text = re.sub(r'[^a-zA-Z0-9]', '', text)
+    return text
+
 def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     category_names = [cat.name for cat in categories.categories]
     prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
@@ -192,13 +198,20 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 split_notes = NoteSplit.parse_obj(split_notes_dict).split_notes
 
                 # Verify that the split notes add up to the original note
-                if ''.join(split_notes).strip() != note.strip():
+                splitNoteText = normaliseText('\n'.join(split_notes))
+                originalText = normaliseText(note)
+                ## remove all non-alphanumeric characters
+                if splitNoteText != originalText:
+                    print("New:\n"+splitNoteText)
+                    print("Old:\n"+originalText)
                     raise ValueError("The split notes do not match the original note exactly.")
 
                 # Verify that all splits occurred on newlines
-                original_lines = note.split('\n')
-                split_lines = [line for split_note in split_notes for line in split_note.split('\n')]
+                original_lines = [normaliseText(line) for line in note.split('\n')]
+                split_lines = [normaliseText(line) for split_note in split_notes for line in split_note.split('\n')]
                 if original_lines != split_lines:
+                    print("New:\n"+"\n".join(split_lines))
+                    print("Old:\n"+"\n".join(original_lines))
                     raise ValueError("Splits did not occur only on newline characters.")
 
                 return split_notes
