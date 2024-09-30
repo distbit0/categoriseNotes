@@ -215,8 +215,8 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 originalText = normaliseText(note)
                 ## remove all non-alphanumeric characters
                 if splitNoteText != originalText:
-                    print("New:\n"+splitNoteText)
-                    print("Old:\n"+originalText)
+                    logger.error("New:\n"+splitNoteText)
+                    logger.error("Old:\n"+originalText)
                     raise ValueError("The split notes do not match the original note exactly.")
 
                 # Verify that all splits occurred on newlines
@@ -225,11 +225,10 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 split_lines = [normaliseText(line) for split_note in split_notes for line in split_note.split('\n') if line.strip()]
                 split_lines = [line for line in split_lines if line]
                 if original_lines != split_lines:
-                    print("New:\n"+"\n".join(split_lines))
-                    print(split_lines)
-                    print("Old:\n"+"\n".join(original_lines))
-                    print(original_lines)
-                    
+                    logger.error("New:\n"+"\n".join(split_lines))
+                    logger.error(split_lines)
+                    logger.error("Old:\n"+"\n".join(original_lines))
+                    logger.error(original_lines)
                     raise ValueError("Splits did not occur only on newline characters.")
                 if len(split_notes) > 1:
                     logger.info(f"Split note:\nINTO {len(split_notes)} notes:\n______________\n"+"\n________________\n".join(split_notes)+"\n______________")
