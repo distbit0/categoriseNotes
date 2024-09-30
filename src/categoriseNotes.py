@@ -119,6 +119,8 @@ Notes:
         )
 
         logger.debug(f"API Response: {response}")
+        
+        print("Categories:\n"+"\n".join([cat["name"] for cat in response.content[0].input["categories"]]))
 
         if response.content and isinstance(
             response.content[0], anthropic.types.ToolUseBlock
@@ -205,8 +207,7 @@ def main():
         categoriesRejected = True
         while categoriesRejected:
             categories = generate_categories(notes)
-            logger.info(f"Generated {len(categories.categories)} categories")
-            categoriesRejected = False if input("Good categories? ") == "y" else True
+            categoriesRejected = False if input("Good categories? ").lower() in ["y", "yes"] else True
 
         categorized_notes = {}
         for i, note in enumerate(notes):
