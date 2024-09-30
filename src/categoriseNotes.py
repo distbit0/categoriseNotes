@@ -68,14 +68,19 @@ def parse_notes(file_path: str) -> tuple[str, str, List[str]]:
 
 def generate_categories(notes: List[str]) -> Categories:
     prompt = f"""below are notes I have written on a certain topic. provide a list of sub topics which I can use to categorise these notes
-- ensure no categories overlap
+- ensure there are sufficient categories to represent depth & breadth of notes
+- however also ensure no categories overlap/are redundant
 - carefully read the notes to understand the material, and how I personally think about it
 - align the categories with how you believe I would conceptually separate the notes in my mind
-- do not align the categories with how such topics are normally categorised in e.g. academia and industry
-- category names should be very specific
-- category names should not contain colon or have more than one part/section
-- category names should not contain any fluff/cringe/commentary/hype. just detailed, discriptive & utilitarian
-- category names should be extremely non-generic & heavily informed by the contents of the notes
+- the categories should be useful groupings I can use to further develop my notes
+- do not try to align the categories with ones from academia, politics and industry
+- category names should be:
+    - very specific
+    - extremely non-generic
+    - heavily informed by the contents of the notes
+- category names should not contain:
+    - a colon or have more than one part/section
+    - any fluff/cringe/commentary/hype
 
 
 Notes:
@@ -197,9 +202,11 @@ def main():
     try:
         front_matter, special_content, notes = parse_notes(args.file_path)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
-
-        categories = generate_categories(notes)
-        logger.info(f"Generated {len(categories.categories)} categories")
+        categoriesRejected = True
+        while categoriesRejected:
+            categories = generate_categories(notes)
+            logger.info(f"Generated {len(categories.categories)} categories")
+            categoriesRejected = False if input("Good categories? ") == "y" else True
 
         categorized_notes = {}
         for i, note in enumerate(notes):
