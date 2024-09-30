@@ -145,11 +145,12 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
     
     Rules:
-    1. Only split the note if it's necessary for proper categorization.
-    2. Splits must only occur on newline characters.
-    3. Do not split in the middle of a line of text.
-    4. Do not add or remove any text from the original note.
-    5. The resulting split pieces must add up exactly to the original note.
+    1. Only split the note if it's necessary for proper categorization. I.e. due to different text in the note belonging to different categories.
+    2. Only split the note if the resulting split notes make sense in isolation/can be understood independently.
+    3. Splits must only occur on newline characters.
+    4. Do not split in the middle of a line of text.
+    5. Do not add or remove any text from the original note.
+    6. The resulting split pieces must add up exactly to the original note.
 
     Note to potentially split:
     {note}
