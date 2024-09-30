@@ -1,6 +1,6 @@
 import argparse
 import logging
-from typing import List
+from typing import List, Tuple
 from pydantic import BaseModel
 import anthropic
 
@@ -27,7 +27,11 @@ class NoteCategory(BaseModel):
     category: str
 
 
-def parse_notes(file_path: str) -> tuple[str, str, List[str]]:
+class NoteSplit(BaseModel):
+    split_notes: List[str]
+
+
+def parse_notes(file_path: str) -> Tuple[str, str, List[str]]:
     with open(file_path, "r") as file:
         content = file.read()
 
@@ -136,6 +140,75 @@ Notes:
         raise
 
 
+def split_note(note: str, categories: Categories) -> List[str]:
+    category_names = [cat.name for cat in categories.categories]
+    prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
+    
+    Rules:
+    1. Only split the note if it's necessary for proper categorization.
+    2. Splits must only occur on newline characters.
+    3. Do not split in the middle of a line of text.
+    4. Do not add or remove any text from the original note.
+    5. The resulting split pieces must add up exactly to the original note.
+
+    Note to potentially split:
+    {note}
+
+    If you decide to split the note, return a list of the split notes. If no split is necessary, return a list containing only the original note."""
+
+    try:
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1024,
+            tools=[
+                {
+                    "name": "split_note",
+                    "description": "Split a note into multiple notes if necessary",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "split_notes": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "The list of split notes or the original note if no split is necessary",
+                            }
+                        },
+                        "required": ["split_notes"],
+                    },
+                }
+            ],
+            tool_choice={"type": "tool", "name": "split_note"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        logger.debug(f"API Response: {response}")
+
+        if response.content and isinstance(
+            response.content[0], anthropic.types.ToolUseBlock
+        ):
+            split_notes_dict = response.content[0].input
+            split_notes = NoteSplit.parse_obj(split_notes_dict).split_notes
+
+            # Verify that the split notes add up to the original note
+            if ''.join(split_notes).strip() != note.strip():
+                raise ValueError("The split notes do not match the original note exactly.")
+
+            # Verify that all splits occurred on newlines
+            original_lines = note.split('\n')
+            split_lines = [line for split_note in split_notes for line in split_note.split('\n')]
+            if original_lines != split_lines:
+                raise ValueError("Splits did not occur only on newline characters.")
+
+            return split_notes
+        else:
+            raise ValueError(
+                f"Unexpected response format from Claude API: {response.content}"
+            )
+    except Exception as e:
+        logger.error(f"Error in split_note: {e}")
+        raise
+
+
 def categorize_note(
     note: str, prev_note: str, next_note: str, categories: Categories
 ) -> str:
@@ -199,6 +272,7 @@ def main():
         description="Categorize notes from a markdown file."
     )
     parser.add_argument("file_path", help="Path to the markdown file containing notes.")
+    parser.add_argument("--split", action="store_true", help="Enable note splitting")
     args = parser.parse_args()
 
     try:
@@ -211,12 +285,18 @@ def main():
 
         categorized_notes = {}
         for i, note in enumerate(notes):
-            prev_note = notes[i - 1] if i > 0 else ""
-            next_note = notes[i + 1] if i < len(notes) - 1 else ""
-            category = categorize_note(note, prev_note, next_note, categories)
-            if category not in categorized_notes:
-                categorized_notes[category] = []
-            categorized_notes[category].append(note)
+            if args.split and note.count('\n') > 1:
+                split_notes = split_note(note, categories)
+            else:
+                split_notes = [note]
+
+            for split_note in split_notes:
+                prev_note = notes[i - 1] if i > 0 else ""
+                next_note = notes[i + 1] if i < len(notes) - 1 else ""
+                category = categorize_note(split_note, prev_note, next_note, categories)
+                if category not in categorized_notes:
+                    categorized_notes[category] = []
+                categorized_notes[category].append(split_note)
 
         write_categorized_notes(
             args.file_path, front_matter, special_content, categorized_notes
