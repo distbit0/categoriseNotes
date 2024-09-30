@@ -1,8 +1,9 @@
 import argparse
+import pyperclip
 import re
 import logging
 import sys
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from pydantic import BaseModel
 import anthropic
 
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 client = anthropic.Anthropic()
 
 categoryPrefix = "## -- "
+
+model = "claude-3-opus-20240229"
 
 
 class Category(BaseModel):
@@ -103,7 +106,7 @@ Notes:
 {' '.join(notes)}"""
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
+            model=model,
             max_tokens=1024,
             tools=[
                 {
@@ -134,8 +137,6 @@ Notes:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        # logger.debug(f"API Response: {response}")
-        
         print("Categories:\n"+"\n".join([cat["name"] for cat in response.content[0].input["categories"]]))
 
         if response.content and isinstance(
@@ -179,7 +180,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     for attempt in range(3):  # Try up to 3 times (original attempt + 2 retries)
         try:
             response = client.messages.create(
-                model="claude-3-5-sonnet-20240620",
+                model=model,
                 max_tokens=1024,
                 tools=[
                     {
@@ -201,8 +202,6 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 tool_choice={"type": "tool", "name": "split_note"},
                 messages=[{"role": "user", "content": prompt}],
             )
-
-            # logger.debug(f"API Response: {response}")
 
             if response.content and isinstance(
                 response.content[0], anthropic.types.ToolUseBlock
@@ -244,7 +243,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 # Inform Claude about the error
                 error_prompt = f"The previous attempt to split the note failed with the following error: {str(e)}. Please try again, paying special attention to the rules and ensuring the output matches the expected format."
                 client.messages.create(
-                    model="claude-3-5-sonnet-20240620",
+                    model=model,
                     max_tokens=100,
                     messages=[{"role": "user", "content": error_prompt}],
                 )
@@ -265,7 +264,7 @@ def categorize_note(
 
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
+            model=model,
             max_tokens=1024,
             tools=[
                 {
@@ -286,8 +285,6 @@ def categorize_note(
             tool_choice={"type": "tool", "name": "categorize_note"},
             messages=[{"role": "user", "content": prompt}],
         )
-
-        # logger.debug(f"API Response: {response}")
 
         if response.content and isinstance(
             response.content[0], anthropic.types.ToolUseBlock
@@ -315,10 +312,60 @@ def write_categorized_notes(
     logger.info(f"Categorized notes written back to {file_path}")
 
 
+def get_user_choice(prompt: str, options: List[str]) -> str:
+    while True:
+        choice = input(f"{prompt} ({'/'.join(options)}): ").lower()
+        if choice in options:
+            return choice
+        print(f"Invalid choice. Please choose from {', '.join(options)}.")
+
+def edit_categories(categories: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    categories_str = "\n".join([f"{cat}: {', '.join(subcats)}" for cat, subcats in categories.items()])
+    pyperclip.copy(categories_str)
+    print("Categories copied to clipboard. Edit them and press Enter when done.")
+    input()
+    edited_categories_str = pyperclip.paste()
+    return {line.split(':')[0].strip(): [subcat.strip() for subcat in line.split(':')[1].split(',')]
+            for line in edited_categories_str.split('\n') if ':' in line}
+
+def display_categories(categories: Dict[str, List[str]], source: str):
+    print(f"\n{source} categories:")
+    for cat, subcats in categories.items():
+        print(f"- {cat}: {', '.join(subcats)}")
+
+def process_categories(notes: List[str], existing_categories: Dict[str, List[str]] = None) -> Dict[str, List[str]]:
+    categories = existing_categories
+    source = "Existing" if existing_categories else "Generated"
+    
+    while True:
+        if categories is None:
+            categories = generate_categories(notes)
+            source = "Generated"
+        
+        display_categories(categories, source)
+        
+        choice = get_user_choice("What would you like to do with these categories?", ["keep", "edit", "new"])
+        if choice == "keep":
+            return categories
+        elif choice == "edit":
+            categories = edit_categories(categories)
+            source = "Edited"
+        else:  # "new"
+            categories = None  # This will trigger generation of new categories in the next iteration
+
+def categorize_notes(notes: List[str], categories: Dict[str, List[str]], split: bool) -> Dict[str, List[str]]:
+    categorized_notes = {}
+    for i, note in enumerate(notes):
+        split_notes = split_note_if_needed(note, categories) if split and note.count('\n') > 1 else [note]
+        for split_note in split_notes:
+            prev_note = notes[i - 1] if i > 0 else ""
+            next_note = notes[i + 1] if i < len(notes) - 1 else ""
+            category = categorize_note(split_note, prev_note, next_note, categories)
+            categorized_notes.setdefault(category, []).append(split_note)
+    return categorized_notes
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Categorize notes from a markdown file."
-    )
+    parser = argparse.ArgumentParser(description="Categorize notes from a markdown file.")
     parser.add_argument("file_path", help="Path to the markdown file containing notes.")
     parser.add_argument("--split", action="store_true", help="Enable note splitting")
     args = parser.parse_args()
@@ -326,49 +373,17 @@ def main():
     try:
         front_matter, special_content, notes, category_lines = parse_notes(args.file_path)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
-        use_existing = False
-        if len(category_lines) > 1:
-            categories = extract_existing_categories(category_lines)
-            print("Categories:")
-            for cat in categories.categories:
-                print(f"- {cat.name}")
-            use_existing = input("Existing categories found. Use them? (y/n): ").lower() in ["y", "yes"]
-            if use_existing:
-                logger.info("Using existing categories")
 
-        categoriesRejected = not use_existing
-        while categoriesRejected:
-            print("Categories:")
-            for cat in categories.categories:
-                print(f"- {cat.name}")
-            categoriesRejected = False if input("Good categories? (y/n): ").lower() in ["y", "yes"] else True
-            if categoriesRejected:
-                categories = generate_categories(notes)
-
-        categorized_notes = {}
-        for i, note in enumerate(notes):
-            if args.split and note.count('\n') > 1:
-                split_notes = split_note_if_needed(note, categories)
-            else:
-                split_notes = [note]
-
-            for split_note in split_notes:
-                prev_note = notes[i - 1] if i > 0 else ""
-                next_note = notes[i + 1] if i < len(notes) - 1 else ""
-                category = categorize_note(split_note, prev_note, next_note, categories)
-                if category not in categorized_notes:
-                    categorized_notes[category] = []
-                categorized_notes[category].append(split_note)
-
-        write_categorized_notes(
-            args.file_path, front_matter, special_content, categorized_notes
-        )
-
+        existing_categories = extract_existing_categories(category_lines) if len(category_lines) > 1 else None
+        categories = process_categories(notes, existing_categories)
+        
+        categorized_notes = categorize_notes(notes, categories, args.split)
+        
+        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes)
         logger.info("Categorization completed successfully")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
         raise
-
 
 if __name__ == "__main__":
     main()
