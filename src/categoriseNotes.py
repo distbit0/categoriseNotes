@@ -36,7 +36,7 @@ class NoteSplit(BaseModel):
     split_notes: List[str]
 
 
-def parse_notes(file_path: str) -> Tuple[str, str, List[str]]:
+def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
     with open(file_path, "r") as file:
         content = file.read()
 
@@ -49,9 +49,12 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str]]:
     lines = content.split("\n")
     special_lines = []
     normal_lines = []
+    category_lines = []
     found_normal_line = False
     for line in lines:
-        if not found_normal_line and (
+        if line.startswith(categoryPrefix):
+            category_lines.append(line)
+        elif not found_normal_line and (
             line.startswith("$") or (line.startswith("#") and not line.startswith(categoryPrefix))
         ):
             special_lines.append(line)
@@ -63,7 +66,7 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str]]:
     special_content = "\n".join(special_lines) + "\n" if special_lines else ""
     content = "\n".join(normal_lines)
 
-    # Filter out lines starting with ########
+    # Filter out lines starting with categoryPrefix
     content_lines = [
         line for line in content.split("\n") if not line.startswith(categoryPrefix)
     ]
@@ -72,8 +75,12 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str]]:
     content = "\n".join(content_lines)
     notes = [note.strip() for note in content.split("\n\n") if note.strip()]
 
-    return front_matter, special_content, notes
+    return front_matter, special_content, notes, category_lines
 
+
+def extract_existing_categories(category_lines: List[str]) -> Categories:
+    categories = [Category(name=line[len(categoryPrefix):].strip()) for line in category_lines]
+    return Categories(categories=categories)
 
 def generate_categories(notes: List[str]) -> Categories:
     prompt = f"""below are notes I have written on a certain topic. provide a list of sub topics which I can use to categorise these notes
@@ -317,12 +324,27 @@ def main():
     args = parser.parse_args()
 
     try:
-        front_matter, special_content, notes = parse_notes(args.file_path)
+        front_matter, special_content, notes, category_lines = parse_notes(args.file_path)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
+
+        if len(category_lines) > 1:
+            use_existing = input("Existing categories found. Use them? (y/n): ").lower() in ["y", "yes"]
+            if use_existing:
+                categories = extract_existing_categories(category_lines)
+                logger.info("Using existing categories")
+            else:
+                categories = generate_categories(notes)
+        else:
+            categories = generate_categories(notes)
+
         categoriesRejected = True
         while categoriesRejected:
-            categories = generate_categories(notes)
-            categoriesRejected = False if input("Good categories? ").lower() in ["y", "yes"] else True
+            print("Categories:")
+            for cat in categories.categories:
+                print(f"- {cat.name}")
+            categoriesRejected = False if input("Good categories? (y/n): ").lower() in ["y", "yes"] else True
+            if categoriesRejected:
+                categories = generate_categories(notes)
 
         categorized_notes = {}
         for i, note in enumerate(notes):
