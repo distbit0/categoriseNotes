@@ -102,13 +102,13 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     - Splits must only occur on newline characters.
     - Do not just split a note just because it has some kind of dividers/sub-sections in it. Only split it if it has sub sections which actually belong in seperate categories!
     - Do not split in the middle of a line of text.
-    - Do not add or remove any text from the original note.
+    - DO NOT add or remove ANY text from the original note!!
     - The resulting split pieces must add up exactly to the original note.
 
     Note to potentially split:
     {note}
 
-    If you decide to split the note, return a list of the split notes. If no split is necessary, return a list containing only the original note."""
+    If you decide to split the note, return a list of the split notes. If no split is necessary, return a LIST (not merely a string) containing only the original note."""
 
     for attempt in range(3):  # Try up to 3 times (original attempt + 2 retries)
         try:
@@ -125,7 +125,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                                 "split_notes": {
                                     "type": "array",
                                     "items": {"type": "string"},
-                                    "description": "The list of split notes or the original note if no split is necessary",
+                                    "description": "The list of split notes or a list containing just the original note if no split is necessary",
                                 }
                             },
                             "required": ["split_notes"],
@@ -140,7 +140,9 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 response.content[0], anthropic.types.ToolUseBlock
             ):
                 split_notes_dict = response.content[0].input
-                split_notes = NoteSplit.parse_obj(split_notes_dict).split_notes
+                if type(split_notes_dict["split_notes"]) == str:
+                    split_notes_dict["split_notes"] = split_notes_dict["split_notes"].split("\n\n")
+                split_notes = NoteSplit.model_validate(split_notes_dict).split_notes
 
                 # Verify that the split notes add up to the original note
                 splitNoteText = normaliseText('\n'.join(split_notes))
@@ -170,10 +172,11 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                     f"Unexpected response format from Claude API: {response.content}"
                 )
         except Exception as e:
-            logger.error(f"Error in split_note_if_needed (attempt {attempt + 1}): {e}")
+            logger.error(f"Error in split_note_if_needed (attempt {attempt + 1}): {e}\nSplit notes dict: {split_notes_dict}")
             if attempt < 2:  # If it's not the last attempt
                 # Inform Claude about the error
                 error_prompt = f"The previous attempt to split the note failed with the following error: {str(e)}. Please try again, paying special attention to the rules and ensuring the output matches the expected format."
+                logger.error("Error prompt: "+error_prompt)
                 client.messages.create(
                     model=model,
                     max_tokens=100,
