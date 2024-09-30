@@ -21,6 +21,7 @@ client = anthropic.Anthropic()
 categoryPrefix = "## -- "
 
 model = "claude-3-opus-20240229"
+# model = "claude-3-5-sonnet-20240620"
 
 
 class Category(BaseModel):
@@ -319,19 +320,26 @@ def get_user_choice(prompt: str, options: List[str]) -> str:
             return choice
         print(f"Invalid choice. Please choose from {', '.join(options)}.")
 
-def edit_categories(categories: Dict[str, List[str]]) -> Dict[str, List[str]]:
-    categories_str = "\n".join([f"{cat}: {', '.join(subcats)}" for cat, subcats in categories.items()])
+def edit_categories(categories: Categories) -> Categories:
+    categories_str = "\n".join([f"- {cat.name}" for cat in categories.categories])
     pyperclip.copy(categories_str)
-    print("Categories copied to clipboard. Edit them and press Enter when done.")
+    print("Categories copied to clipboard. Edit then copy them to your clipboard. Press Enter when done.")
     input()
     edited_categories_str = pyperclip.paste()
-    return {line.split(':')[0].strip(): [subcat.strip() for subcat in line.split(':')[1].split(',')]
-            for line in edited_categories_str.split('\n') if ':' in line}
+    
+    # Parse the edited categories
+    new_categories = [
+        Category(name=line.strip()[2:])  # Remove the "- " prefix
+        for line in edited_categories_str.split('\n')
+        if line.strip().startswith('- ')
+    ]
+    
+    return Categories(categories=new_categories)
 
 def display_categories(categories: Dict[str, List[str]], source: str):
     print(f"\n{source} categories:")
-    for cat, subcats in categories.items():
-        print(f"- {cat}: {', '.join(subcats)}")
+    for cat in categories.categories:
+        print(f"- {cat.name}")
 
 def process_categories(notes: List[str], existing_categories: Dict[str, List[str]] = None) -> Dict[str, List[str]]:
     categories = existing_categories
