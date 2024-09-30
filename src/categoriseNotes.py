@@ -267,12 +267,12 @@ def edit_categories(categories: Categories) -> Categories:
     
     return Categories(categories=new_categories)
 
-def display_categories(categories: Dict[str, List[str]], source: str):
+def display_categories(categories, source):
     print(f"\n{source} categories:")
     for cat in categories.categories:
         print(f"- {cat.name}")
 
-def generate_categories(notes: List[str], existing_categories: Optional[Categories] = None, change_description: Optional[str] = None) -> Categories:
+def generate_categories(notes, existing_categories=None, change_description=None):
     prompt = f"""Below are notes I have written on a certain topic. Provide a list of sub topics which I can use to categorise these notes
 - Ensure there are sufficient categories to represent depth & breadth of notes
 - However also ensure no categories overlap/are redundant
@@ -293,14 +293,12 @@ Notes:
     messages = [{"role": "user", "content": prompt}]
 
     if existing_categories and change_description:
-        # Add existing categories as a message from Claude
         existing_categories_str = "\n".join([f"- {cat.name}" for cat in existing_categories.categories])
         messages.append({
             "role": "assistant",
             "content": f"Here are the categories I've generated based on your notes:\n{existing_categories_str}"
         })
         
-        # Add change description as a message from the user
         messages.append({
             "role": "user",
             "content": f"Please modify the categories based on this description: {change_description}"
@@ -352,9 +350,8 @@ Notes:
         logger.error(f"Error in generate_categories: {e}")
         raise
 
-
-def process_categories(notes: List[str], existing_categories: Dict[str, List[str]] = None) -> Dict[str, List[str]]:
-    categories = Categories(categories=[Category(name=cat) for cat in existing_categories.keys()]) if existing_categories else None
+def process_categories(notes, existing_categories=None):
+    categories = Categories(categories=[cat for cat in existing_categories.categories]) if existing_categories else None
     source = "Existing" if existing_categories else "Generated"
     
     while True:
@@ -366,7 +363,7 @@ def process_categories(notes: List[str], existing_categories: Dict[str, List[str
         
         choice = get_user_choice("What would you like to do with these categories?", ["keep", "edit", "revise", "new"])
         if choice == "keep":
-            return {cat.name: [] for cat in categories.categories}
+            return categories
         elif choice == "edit":
             categories = edit_categories(categories)
             source = "Edited"
@@ -377,9 +374,9 @@ def process_categories(notes: List[str], existing_categories: Dict[str, List[str
         else:  # "new"
             categories = None  # This will trigger generation of new categories in the next iteration
 
-    return {cat.name: [] for cat in categories.categories}
+    return categories
 
-def categorize_notes(notes: List[str], categories: Dict[str, List[str]], split: bool) -> Dict[str, List[str]]:
+def categorize_notes(notes, categories, split):
     categorized_notes = {}
     for i, note in enumerate(notes):
         split_notes = split_note_if_needed(note, categories) if split and note.count('\n') > 1 else [note]
