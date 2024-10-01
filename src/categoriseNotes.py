@@ -1,16 +1,18 @@
 import argparse
+from dataclasses import dataclass, field
+from tqdm import tqdm
 import time
 import pyperclip
 import re
-from typing import Callable, Any
 from functools import wraps
 import logging
 import sys
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Callable, Any, Optional
 from pydantic import BaseModel
 import anthropic
 from anthropic import RateLimitError
 from helperPrompts import splitPrompt, generateCategoriesPrompt
+from datetime import datetime, timezone
 
 handler = logging.StreamHandler(sys.stdout)
 
@@ -32,6 +34,10 @@ categorisationModel = "claude-3-5-sonnet-20240620"
 class Category(BaseModel):
     name: str
 
+@dataclass
+class RetryContext:
+    attempts: int = 0
+    errors: List[Exception] = field(default_factory=list)
 
 class Categories(BaseModel):
     categories: List[Category]
@@ -91,6 +97,7 @@ def extract_existing_categories(category_lines: List[str]) -> Categories:
     categories = [Category(name=line[len(categoryPrefix):].strip().strip(":")) for line in category_lines]
     return Categories(categories=categories)
 
+
 def normaliseText(text: str) -> str:
     text = text.strip().lower()
     text = re.sub(r'[^a-zA-Z0-9]', '', text)
@@ -107,32 +114,26 @@ def handle_rate_limit(headers: Dict[str, str]) -> None:
         limit = headers.get(f'anthropic-ratelimit-{limit_type}-limit')
         remaining = headers.get(f'anthropic-ratelimit-{limit_type}-remaining')
         reset = headers.get(f'anthropic-ratelimit-{limit_type}-reset')
-        logger.info(f"{limit_type.capitalize()}: {remaining}/{limit} (Reset at: {reset})")
-
+        
+        if reset:
+            reset_time = datetime.fromisoformat(reset.replace('Z', '+00:00'))
+            time_until_reset = reset_time - datetime.now(timezone.utc)
+            hours, remainder = divmod(time_until_reset.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            time_str = f"{hours}h {minutes}m"
+        else:
+            time_str = "Unknown"
+        
+        logger.info(f"{limit_type.capitalize()} remaining: {remaining}/{limit} (Resets in: {time_str})")
+    
     retry_after = headers.get('retry-after')
     if retry_after:
-        sleep_time = int(retry_after) + 1  # Add 1 second as a buffer
+        sleep_time = int(retry_after) + 2  # Add 2 seconds as a buffer
         logger.info(f"Sleeping for {sleep_time} seconds before retrying...")
         time.sleep(sleep_time)
     else:
         logger.info("No retry-after header provided. Sleeping for 60 seconds as a precaution.")
         time.sleep(60)
-def retry_on_error(max_retries: int = 3) -> Callable:
-    """Decorator to retry function on specific errors."""
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except (ValueError, RuntimeError) as e:
-                    logger.error(f"Error in {func.__name__} (attempt {attempt + 1}): {e}")
-                    if attempt == max_retries - 1:
-                        raise
-                    time.sleep(1)  # Wait a second before retrying
-            raise RuntimeError(f"Max retries ({max_retries}) reached in {func.__name__}")
-        return wrapper
-    return decorator
 
 
 def retry_on_rate_limit(max_retries: int = None) -> Callable:
@@ -152,18 +153,72 @@ def retry_on_rate_limit(max_retries: int = None) -> Callable:
         return wrapper
     return decorator
 
-@retry_on_rate_limit()
+
+def validate_split_notes(original_note: str, split_notes: List[str]) -> None:
+    """Validate that the split notes match the original note."""
+    split_text = normaliseText('\n'.join(split_notes))
+    original_text = normaliseText(original_note)
+    
+    if split_text != original_text:
+        logger.error(f"Split text:\n{split_text}")
+        logger.error(f"Original text:\n{original_text}")
+        raise ValueError("The split notes do not match the original note exactly. The resulting split pieces must add up exactly to the original note. i.e. do not add or remove ANY text from the original note, or re-order the text!")
+
+    original_lines = [line for line in original_note.split('\n') if line.strip()]
+    split_lines = [line for note in split_notes for line in note.split('\n') if line.strip()]
+    
+    if original_lines != split_lines:
+        logger.error(f"Split lines:\n{split_lines}")
+        logger.error(f"Original lines:\n{original_lines}")
+        raise ValueError("Splits did not occur only on newline characters. Splits must only be made on newline characters.")
+
+
+
+
+def retry_on_error(max_retries: int = 3) -> Callable:
+    """Decorator to retry function on specific errors, passing error context."""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            retry_context = RetryContext()
+            
+            for attempt in range(max_retries):
+                retry_context.attempts = attempt + 1
+                try:
+                    return func(*args, **kwargs, retry_context=retry_context)
+                except (ValueError, RuntimeError) as e:
+                    logger.error(f"Error in {func.__name__} (attempt {attempt + 1}): {e}")
+                    retry_context.errors.append(e)
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(1)  # Wait a second before retrying
+            raise RuntimeError(f"Max retries ({max_retries}) reached in {func.__name__}")
+        return wrapper
+    return decorator
+
+
+
 @retry_on_error()
-def split_note_if_needed(note: str, categories: Categories) -> List[str]:
+@retry_on_rate_limit()
+def split_note_if_needed(note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> List[str]:
     category_names = [cat.name for cat in categories.categories]
+    
+    error_context = ""
+    if retry_context and retry_context.errors:
+        error_context = f"\n\nPrevious attempts failed with the following errors:\n" + \
+                        "\n".join(f"Attempt {i+1}: {str(e)}" for i, e in enumerate(retry_context.errors))
+    
     prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
     
     {splitPrompt}
 
     Note to potentially split:
     {note}
-
-    If you decide to split the note, return a list of the split notes. If no split is necessary, return a list containing only the original note."""
+    
+    If you decide to split the note, return a list of the split notes. If no split is necessary, return a list containing only the original note.
+    
+    {error_context}
+    """
 
     response = client.messages.create(
         model=categorisationModel,
@@ -202,39 +257,23 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
 
     return split_notes
 
-def validate_split_notes(original_note: str, split_notes: List[str]) -> None:
-    """Validate that the split notes match the original note."""
-    split_text = normaliseText('\n'.join(split_notes))
-    original_text = normaliseText(original_note)
-    
-    if split_text != original_text:
-        logger.error(f"Split text:\n{split_text}")
-        logger.error(f"Original text:\n{original_text}")
-        raise ValueError("The split notes do not match the original note exactly.")
-
-    original_lines = [line for line in original_note.split('\n') if line.strip()]
-    split_lines = [line for note in split_notes for line in note.split('\n') if line.strip()]
-    
-    if original_lines != split_lines:
-        logger.error(f"Split lines:\n{split_lines}")
-        logger.error(f"Original lines:\n{original_lines}")
-        raise ValueError("Splits did not occur only on newline characters.")
-
-@retry_on_rate_limit()
 @retry_on_error()
-def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories) -> str:
+@retry_on_rate_limit()
+def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> str:
     category_names = [cat.name for cat in categories.categories]
-    prompt = f"""Categorize the following note into one of these categories: {', '.join(category_names)}. 
-    Consider the context provided by the previous and next notes.
-
-    Previous note:
-    {prev_note}
+    
+    error_context = ""
+    if retry_context and retry_context.errors:
+        error_context = f"\n\nPrevious attempts failed with the following errors:\n" + \
+                        "\n".join(f"Attempt {i+1}: {str(e)}" for i, e in enumerate(retry_context.errors))
+    
+    prompt = f"""Categorize the following note into one of these categories: \n{'\n'.join(category_names)}. 
 
     Note to categorize:
     {note}
-
-    Next note:
-    {next_note}"""
+    
+    {error_context}
+    """
 
     response = client.messages.create(
         model=categorisationModel,
@@ -264,8 +303,12 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
     category_dict = response.content[0].input
     category = NoteCategory.parse_obj(category_dict).category
 
+    lowerCategoryNames = {category.lower().strip(): category for category in category_names}
+    if category.lower().strip() in lowerCategoryNames:
+        category = lowerCategoryNames[category.lower().strip()]
+
     if category not in category_names:
-        raise ValueError(f"Invalid category: {category}. Must be one of: {', '.join(category_names)}")
+        raise ValueError(f"Invalid category: {category}. Must be one of: \n{'\n'.join(category_names)}")
 
     return category
 
@@ -405,13 +448,16 @@ def process_categories(notes, existing_categories=None):
 
 def categorize_notes(notes, categories, split):
     categorized_notes = {}
-    for i, note in enumerate(notes):
+    
+    # Wrap the notes list with tqdm for progress tracking
+    for i, note in enumerate(tqdm(notes, desc="Categorizing notes", unit="note")):
         split_notes = split_note_if_needed(note, categories) if split and note.count('\n') > 1 else [note]
         for split_note in split_notes:
             prev_note = notes[i - 1] if i > 0 else ""
             next_note = notes[i + 1] if i < len(notes) - 1 else ""
             category = categorize_note(split_note, prev_note, next_note, categories)
             categorized_notes.setdefault(category, []).append(split_note)
+    
     return categorized_notes
 
 def main():
