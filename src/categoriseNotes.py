@@ -6,11 +6,11 @@ from typing import Callable, Any
 from functools import wraps
 import logging
 import sys
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict
 from pydantic import BaseModel
 import anthropic
 from anthropic import RateLimitError
-from .prompts import splitPrompt, generateCategoriesPrompt
+from helperPrompts import splitPrompt, generateCategoriesPrompt
 
 handler = logging.StreamHandler(sys.stdout)
 
