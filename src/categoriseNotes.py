@@ -113,47 +113,6 @@ def normaliseText(text: str) -> str:
 
 
 
-# def handle_rate_limit(e: Exception) -> None:
-#     """Log rate limit information and sleep if necessary."""
-#     logger.warning("Rate limit encountered.")
-    
-#     # Extract and log rate limit information
-#     if hasattr(e, 'response') and hasattr(e.response, 'headers'):
-#         headers = e.response.headers
-#         retry_after = headers.get('retry-after')
-#         if retry_after:
-#             sleep_time = int(retry_after) + 2  # Add 2 seconds as a buffer
-#             logger.info(f"Sleeping for {sleep_time} seconds before retrying...")
-#             time.sleep(sleep_time)
-#         else:
-#             logger.info("No retry-after header provided. Sleeping for 60 seconds as a precaution.")
-#             time.sleep(60)
-#     else:
-#         logger.info("No rate limit information available. Sleeping for 60 seconds as a precaution.")
-#         time.sleep(60)
-
-
-# def retry_on_rate_limit(max_retries: int = None) -> Callable:
-#     """Decorator to retry function on rate limit error."""
-#     def decorator(func: Callable) -> Callable:
-#         @wraps(func)
-#         def wrapper(*args: Any, **kwargs: Any) -> Any:
-#             retries = 0
-#             while max_retries is None or retries < max_retries:
-#                 try:
-#                     return func(*args, **kwargs)
-#                 except Exception as e:
-#                     if "rate limit" in str(e).lower():
-#                         retries += 1
-#                         logger.warning(f"Rate limit hit. Retry attempt {retries}")
-#                         handle_rate_limit(e)
-#                     else:
-#                         raise
-#             raise RuntimeError(f"Max retries ({max_retries}) reached due to rate limiting.")
-#         return wrapper
-#     return decorator
-
-
 def validate_split_notes(original_note: str, split_notes: List[str]) -> None:
     """Validate that the split notes match the original note."""
     split_text = normaliseText('\n'.join(split_notes))
