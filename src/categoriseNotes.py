@@ -190,6 +190,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     if not response.content or not isinstance(response.content[0], anthropic.types.ToolUseBlock):
         raise ValueError(f"Unexpected response format from Claude API: {response.content}")
 
+    print(f"Usage: Input tokens: {response.usage.input_tokens}, Output tokens: {response.usage.output_tokens}")
     split_notes_dict = response.content[0].input
     split_notes = NoteSplit.model_validate(split_notes_dict).split_notes
 
@@ -259,6 +260,7 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
     if not response.content or not isinstance(response.content[0], anthropic.types.ToolUseBlock):
         raise ValueError(f"Unexpected response format from Claude API: {response.content}")
 
+    print(f"Usage: Input tokens: {response.usage.input_tokens}, Output tokens: {response.usage.output_tokens}")
     category_dict = response.content[0].input
     category = NoteCategory.parse_obj(category_dict).category
 
