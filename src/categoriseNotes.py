@@ -20,8 +20,8 @@ client = anthropic.Anthropic()
 
 categoryPrefix = "## -- "
 
-model = "claude-3-opus-20240229"
-# model = "claude-3-5-sonnet-20240620"
+generationModel = "claude-3-opus-20240229"
+categorisationModel = "claude-3-5-sonnet-20240620"
 
 
 class Category(BaseModel):
@@ -113,7 +113,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     for attempt in range(3):  # Try up to 3 times (original attempt + 2 retries)
         try:
             response = client.messages.create(
-                model=model,
+                model=categorisationModel,
                 max_tokens=1024,
                 tools=[
                     {
@@ -178,7 +178,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
                 error_prompt = f"The previous attempt to split the note failed with the following error: {str(e)}. Please try again, paying special attention to the rules and ensuring the output matches the expected format."
                 logger.error("Error prompt: "+error_prompt)
                 client.messages.create(
-                    model=model,
+                    model=categorisationModel,
                     max_tokens=100,
                     messages=[{"role": "user", "content": error_prompt}],
                 )
@@ -199,7 +199,7 @@ def categorize_note(
 
     try:
         response = client.messages.create(
-            model=model,
+            model=categorisationModel,
             max_tokens=1024,
             tools=[
                 {
@@ -309,7 +309,7 @@ Notes:
 
     try:
         response = client.messages.create(
-            model=model,
+            model=generationModel,
             max_tokens=1024,
             tools=[
                 {
