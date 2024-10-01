@@ -49,13 +49,14 @@ class RetryContext:
 class Categories(BaseModel):
     categories: List[Category]
 
-
 class NoteCategory(BaseModel):
     category: str
 
-
 class NoteSplit(BaseModel):
     split_notes: List[str]
+
+class GenerateCategories(BaseModel):
+    categories: List[Category]
 
 
 def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
@@ -198,7 +199,6 @@ def retry_on_error(max_retries: int = 3) -> Callable:
 
 
 @retry_on_error()
-# @retry_on_rate_limit()
 def split_note_if_needed(note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> List[str]:
     category_names = [cat.name for cat in categories.categories]
     
@@ -219,34 +219,17 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
     {error_context}
     """
 
-    response = client.chat.completions.create(
+    response = client.chat.completions.parse(
         model=categorisationModel,
         max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-        functions=[{
-            "name": "split_note",
-            "description": "Split a note into multiple notes if necessary",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "split_notes": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "The list of split notes or a list containing just the original note if no split is necessary",
-                    }
-                },
-                "required": ["split_notes"],
-            },
-        }],
-        function_call={"name": "split_note"},
+        messages=[
+            {"role": "system", "content": "You are an expert at splitting notes into appropriate categories."},
+            {"role": "user", "content": prompt}
+        ],
+        response_format=NoteSplit,
     )
 
-    if not response.choices or not response.choices[0].function_call:
-        raise ValueError(f"Unexpected response format from OpenAI API: {response}")
-
-    print(f"Usage: Prompt tokens: {response.usage.prompt_tokens}, Completion tokens: {response.usage.completion_tokens}")
-    split_notes_dict = json.loads(response.choices[0].function_call.arguments)
-    split_notes = NoteSplit.model_validate(split_notes_dict).split_notes
+    split_notes = response.choices[0].message.parsed.split_notes
 
     # Validate the split
     validate_split_notes(note, split_notes)
@@ -257,7 +240,6 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
     return split_notes
 
 @retry_on_error()
-# @retry_on_rate_limit()
 def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> str:
     category_names = [cat.name for cat in categories.categories]
     
@@ -274,33 +256,17 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
     {error_context}
     """
 
-    response = client.chat.completions.create(
+    response = client.chat.completions.parse(
         model=categorisationModel,
         max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-        functions=[{
-            "name": "categorize_note",
-            "description": "Categorize a note into one of the given categories",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "description": "The chosen category name",
-                    }
-                },
-                "required": ["category"],
-            },
-        }],
-        function_call={"name": "categorize_note"},
+        messages=[
+            {"role": "system", "content": "You are an expert at categorizing notes into predefined categories."},
+            {"role": "user", "content": prompt}
+        ],
+        response_format=NoteCategory,
     )
 
-    if not response.choices or not response.choices[0].function_call:
-        raise ValueError(f"Unexpected response format from OpenAI API: {response}")
-
-    print(f"Usage: Prompt tokens: {response.usage.prompt_tokens}, Completion tokens: {response.usage.completion_tokens}")
-    category_dict = json.loads(response.choices[0].function_call.arguments)
-    category = NoteCategory.parse_obj(category_dict).category
+    category = response.choices[0].message.parsed.category
 
     lowerCategoryNames = {category.lower().strip(): category for category in category_names}
     if category.lower().strip() in lowerCategoryNames:
@@ -360,7 +326,10 @@ def generate_categories(notes, existing_categories=None, change_description=None
 Notes:
 {' '.join(notes)}"""
 
-    messages = [{"role": "user", "content": prompt}]
+    messages = [
+        {"role": "system", "content": "You are an expert at generating categories for a set of notes."},
+        {"role": "user", "content": prompt}
+    ]
 
     if existing_categories and change_description:
         existing_categories_str = "\n".join([f"- {cat.name}" for cat in existing_categories.categories])
@@ -375,45 +344,13 @@ Notes:
         })
 
     try:
-        response = client.chat.completions.create(
+        response = client.chat.completions.parse(
             model=generationModel,
             max_tokens=1024,
             messages=messages,
-            functions=[
-                {
-                    "name": "generate_categories",
-                    "description": "Generate categories for a set of notes",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "categories": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string",
-                                            "description": "Name of the category",
-                                        }
-                                    },
-                                    "required": ["name"],
-                                },
-                            }
-                        },
-                        "required": ["categories"],
-                    },
-                }
-            ],
-            function_call={"name": "generate_categories"},
+            response_format=GenerateCategories,
         )
-        print(response.choices[0])
-        if response.choices and response.choices[0].function_call:
-            categories_dict = json.loads(response.choices[0].function_call.arguments)
-            return Categories.model_validate(categories_dict)
-        else:
-            raise ValueError(
-                f"Unexpected response format from OpenAI API: {response}"
-            )
+        return Categories(categories=response.choices[0].message.parsed.categories)
     except Exception as e:
         logger.error(f"Error in generate_categories: {e}")
         raise
