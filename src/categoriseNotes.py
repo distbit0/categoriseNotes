@@ -9,6 +9,7 @@ import logging
 import sys
 from typing import List, Tuple, Dict, Callable, Any, Optional
 from pydantic import BaseModel
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
