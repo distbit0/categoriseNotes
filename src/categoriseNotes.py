@@ -102,7 +102,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     - Splits must only occur on newline characters.
     - Do not just split a note just because it has some kind of dividers/sub-sections in it. Only split it if it has sub sections which actually belong in seperate categories!
     - Do not split in the middle of a line of text.
-    - DO NOT add or remove ANY text from the original note!!
+    - DO NOT add or remove ANY text from the original note, or re-order the text!!
     - The resulting split pieces must add up exactly to the original note.
 
     Note to potentially split:
