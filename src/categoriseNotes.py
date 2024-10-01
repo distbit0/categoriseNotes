@@ -257,7 +257,7 @@ def get_user_choice(prompt: str, options: List[str]) -> str:
 def edit_categories(categories: Categories) -> Categories:
     categories_str = "\n".join([f"- {cat.name}" for cat in categories.categories])
     pyperclip.copy(categories_str)
-    print("Categories copied to clipboard. Edit then copy them to your clipboard. Press Enter when done.")
+    print("Edit above listed categories, then copy updated list to your clipboard, in the same format as they are listed above. Press Enter when done.")
     input()
     edited_categories_str = pyperclip.paste()
     
