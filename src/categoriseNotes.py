@@ -46,7 +46,7 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
 
     # Extract front matter
     parts = content.split("---", 2)
-    front_matter = "---\n" + parts[1] + "---\n" if len(parts) >= 3 else ""
+    front_matter = "---" + parts[1] + "---\n" if len(parts) >= 3 else ""
     content = parts[2].strip() if len(parts) >= 3 else content
 
     # Extract lines starting with $ or single #
