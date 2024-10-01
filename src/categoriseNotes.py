@@ -34,8 +34,8 @@ client = OpenAI(
 
 categoryPrefix = "## -- "
 
-generationModel = "claude-3-opus-20240229"
-categorisationModel = "claude-3-5-sonnet-20240620"
+generationModel = "anthropic/claude-3-opus:beta"
+categorisationModel = "anthropic/claude-3.5-sonnet:beta"
 
 
 class Category(BaseModel):
@@ -112,45 +112,45 @@ def normaliseText(text: str) -> str:
 
 
 
-def handle_rate_limit(e: Exception) -> None:
-    """Log rate limit information and sleep if necessary."""
-    logger.warning("Rate limit encountered.")
+# def handle_rate_limit(e: Exception) -> None:
+#     """Log rate limit information and sleep if necessary."""
+#     logger.warning("Rate limit encountered.")
     
-    # Extract and log rate limit information
-    if hasattr(e, 'response') and hasattr(e.response, 'headers'):
-        headers = e.response.headers
-        retry_after = headers.get('retry-after')
-        if retry_after:
-            sleep_time = int(retry_after) + 2  # Add 2 seconds as a buffer
-            logger.info(f"Sleeping for {sleep_time} seconds before retrying...")
-            time.sleep(sleep_time)
-        else:
-            logger.info("No retry-after header provided. Sleeping for 60 seconds as a precaution.")
-            time.sleep(60)
-    else:
-        logger.info("No rate limit information available. Sleeping for 60 seconds as a precaution.")
-        time.sleep(60)
+#     # Extract and log rate limit information
+#     if hasattr(e, 'response') and hasattr(e.response, 'headers'):
+#         headers = e.response.headers
+#         retry_after = headers.get('retry-after')
+#         if retry_after:
+#             sleep_time = int(retry_after) + 2  # Add 2 seconds as a buffer
+#             logger.info(f"Sleeping for {sleep_time} seconds before retrying...")
+#             time.sleep(sleep_time)
+#         else:
+#             logger.info("No retry-after header provided. Sleeping for 60 seconds as a precaution.")
+#             time.sleep(60)
+#     else:
+#         logger.info("No rate limit information available. Sleeping for 60 seconds as a precaution.")
+#         time.sleep(60)
 
 
-def retry_on_rate_limit(max_retries: int = None) -> Callable:
-    """Decorator to retry function on rate limit error."""
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            retries = 0
-            while max_retries is None or retries < max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if "rate limit" in str(e).lower():
-                        retries += 1
-                        logger.warning(f"Rate limit hit. Retry attempt {retries}")
-                        handle_rate_limit(e)
-                    else:
-                        raise
-            raise RuntimeError(f"Max retries ({max_retries}) reached due to rate limiting.")
-        return wrapper
-    return decorator
+# def retry_on_rate_limit(max_retries: int = None) -> Callable:
+#     """Decorator to retry function on rate limit error."""
+#     def decorator(func: Callable) -> Callable:
+#         @wraps(func)
+#         def wrapper(*args: Any, **kwargs: Any) -> Any:
+#             retries = 0
+#             while max_retries is None or retries < max_retries:
+#                 try:
+#                     return func(*args, **kwargs)
+#                 except Exception as e:
+#                     if "rate limit" in str(e).lower():
+#                         retries += 1
+#                         logger.warning(f"Rate limit hit. Retry attempt {retries}")
+#                         handle_rate_limit(e)
+#                     else:
+#                         raise
+#             raise RuntimeError(f"Max retries ({max_retries}) reached due to rate limiting.")
+#         return wrapper
+#     return decorator
 
 
 def validate_split_notes(original_note: str, split_notes: List[str]) -> None:
@@ -198,7 +198,7 @@ def retry_on_error(max_retries: int = 3) -> Callable:
 
 
 @retry_on_error()
-@retry_on_rate_limit()
+# @retry_on_rate_limit()
 def split_note_if_needed(note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> List[str]:
     category_names = [cat.name for cat in categories.categories]
     
@@ -239,10 +239,6 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
             },
         }],
         function_call={"name": "split_note"},
-        extra_headers={
-            "HTTP-Referer": "https://your-app-url.com",
-            "X-Title": "YourAppName",
-        },
     )
 
     if not response.choices or not response.choices[0].function_call:
@@ -261,7 +257,7 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
     return split_notes
 
 @retry_on_error()
-@retry_on_rate_limit()
+# @retry_on_rate_limit()
 def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> str:
     category_names = [cat.name for cat in categories.categories]
     
@@ -297,10 +293,6 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
             },
         }],
         function_call={"name": "categorize_note"},
-        extra_headers={
-            "HTTP-Referer": "https://your-app-url.com",
-            "X-Title": "YourAppName",
-        },
     )
 
     if not response.choices or not response.choices[0].function_call:
@@ -413,11 +405,8 @@ Notes:
                 }
             ],
             function_call={"name": "generate_categories"},
-            extra_headers={
-                "HTTP-Referer": "https://your-app-url.com",
-                "X-Title": "YourAppName",
-            },
         )
+        print(response.choices[0])
         if response.choices and response.choices[0].function_call:
             categories_dict = json.loads(response.choices[0].function_call.arguments)
             return Categories.model_validate(categories_dict)
