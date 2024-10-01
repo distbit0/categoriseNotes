@@ -1,4 +1,5 @@
 import argparse
+import json
 from dataclasses import dataclass, field
 from tqdm import tqdm
 import time
@@ -9,7 +10,6 @@ import logging
 import sys
 from typing import List, Tuple, Dict, Callable, Any, Optional
 from pydantic import BaseModel
-import json
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
@@ -35,19 +35,14 @@ client = OpenAI(
 categoryPrefix = "## -- "
 
 generationModel = "anthropic/claude-3-opus:beta"
-categorisationModel = "anthropic/claude-3.5-sonnet:beta"
+categorisationModel="openai/gpt-4o-2024-08-06"
 
-
-class Category(BaseModel):
-    name: str
 
 @dataclass
 class RetryContext:
     attempts: int = 0
     errors: List[Exception] = field(default_factory=list)
 
-class Categories(BaseModel):
-    categories: List[Category]
 
 class NoteCategory(BaseModel):
     category: str
@@ -55,8 +50,13 @@ class NoteCategory(BaseModel):
 class NoteSplit(BaseModel):
     split_notes: List[str]
 
-class GenerateCategories(BaseModel):
+class Category(BaseModel):
+    name: str
+
+class Categories(BaseModel):
     categories: List[Category]
+
+
 
 
 def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
@@ -219,7 +219,7 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
     {error_context}
     """
 
-    response = client.chat.completions.parse(
+    response = client.beta.chat.completions.parse(
         model=categorisationModel,
         max_tokens=1024,
         messages=[
@@ -256,7 +256,7 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
     {error_context}
     """
 
-    response = client.chat.completions.parse(
+    response = client.beta.chat.completions.parse(
         model=categorisationModel,
         max_tokens=1024,
         messages=[
@@ -321,13 +321,39 @@ def display_categories(categories, source):
         print(f"- {cat.name}")
 
 def generate_categories(notes, existing_categories=None, change_description=None):
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "create_categories",
+                "description": "Generate categories for a set of notes",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "categories": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "description": "Name of the category",
+                                },
+                                "required": ["name"]
+                            }
+                        }
+                    },
+                    "required": ["categories"]
+                }
+            }
+        }
+    ]
+
     prompt = f"""{generateCategoriesPrompt}
     
 Notes:
 {' '.join(notes)}"""
 
     messages = [
-        {"role": "system", "content": "You are an expert at generating categories for a set of notes."},
         {"role": "user", "content": prompt}
     ]
 
@@ -344,13 +370,19 @@ Notes:
         })
 
     try:
-        response = client.chat.completions.parse(
+        response = client.chat.completions.create(
             model=generationModel,
-            max_tokens=1024,
             messages=messages,
-            response_format=GenerateCategories,
+            tools=tools,
+            tool_choice={"type": "tool", "name": "generate_categories"},
         )
-        return Categories(categories=response.choices[0].message.parsed.categories)
+        
+        # Extract the function call from the response
+        function_call = response.choices[0].message.tool_calls[0].function
+        categories_data = json.loads(function_call.arguments)
+        
+        # Convert the categories data to your Categories object
+        return Categories(categories=[Category(**cat) for cat in categories_data['categories']])
     except Exception as e:
         logger.error(f"Error in generate_categories: {e}")
         raise
