@@ -9,8 +9,9 @@ import logging
 import sys
 from typing import List, Tuple, Dict, Callable, Any, Optional
 from pydantic import BaseModel
-import anthropic
-from anthropic import RateLimitError
+from openai import OpenAI
+from dotenv import load_dotenv
+import os
 from helperPrompts import splitPrompt, generateCategoriesPrompt
 from datetime import datetime, timezone
 
@@ -23,7 +24,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-client = anthropic.Anthropic()
+load_dotenv()
+
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+)
 
 categoryPrefix = "## -- "
 
@@ -105,34 +111,23 @@ def normaliseText(text: str) -> str:
 
 
 
-def handle_rate_limit(headers: Dict[str, str]) -> None:
+def handle_rate_limit(e: Exception) -> None:
     """Log rate limit information and sleep if necessary."""
     logger.warning("Rate limit encountered.")
     
     # Extract and log rate limit information
-    for limit_type in ['requests', 'tokens']:
-        limit = headers.get(f'anthropic-ratelimit-{limit_type}-limit')
-        remaining = headers.get(f'anthropic-ratelimit-{limit_type}-remaining')
-        reset = headers.get(f'anthropic-ratelimit-{limit_type}-reset')
-        
-        if reset:
-            reset_time = datetime.fromisoformat(reset.replace('Z', '+00:00'))
-            time_until_reset = reset_time - datetime.now(timezone.utc)
-            hours, remainder = divmod(time_until_reset.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            time_str = f"{hours}h {minutes}m"
+    if hasattr(e, 'response') and hasattr(e.response, 'headers'):
+        headers = e.response.headers
+        retry_after = headers.get('retry-after')
+        if retry_after:
+            sleep_time = int(retry_after) + 2  # Add 2 seconds as a buffer
+            logger.info(f"Sleeping for {sleep_time} seconds before retrying...")
+            time.sleep(sleep_time)
         else:
-            time_str = "Unknown"
-        
-        logger.info(f"{limit_type.capitalize()} remaining: {remaining}/{limit} (Resets in: {time_str})")
-    
-    retry_after = headers.get('retry-after')
-    if retry_after:
-        sleep_time = int(retry_after) + 2  # Add 2 seconds as a buffer
-        logger.info(f"Sleeping for {sleep_time} seconds before retrying...")
-        time.sleep(sleep_time)
+            logger.info("No retry-after header provided. Sleeping for 60 seconds as a precaution.")
+            time.sleep(60)
     else:
-        logger.info("No retry-after header provided. Sleeping for 60 seconds as a precaution.")
+        logger.info("No rate limit information available. Sleeping for 60 seconds as a precaution.")
         time.sleep(60)
 
 
@@ -145,10 +140,13 @@ def retry_on_rate_limit(max_retries: int = None) -> Callable:
             while max_retries is None or retries < max_retries:
                 try:
                     return func(*args, **kwargs)
-                except RateLimitError as e:
-                    retries += 1
-                    logger.warning(f"Rate limit hit. Retry attempt {retries}")
-                    handle_rate_limit(e.response.headers)
+                except Exception as e:
+                    if "rate limit" in str(e).lower():
+                        retries += 1
+                        logger.warning(f"Rate limit hit. Retry attempt {retries}")
+                        handle_rate_limit(e)
+                    else:
+                        raise
             raise RuntimeError(f"Max retries ({max_retries}) reached due to rate limiting.")
         return wrapper
     return decorator
@@ -220,13 +218,14 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
     {error_context}
     """
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=categorisationModel,
         max_tokens=1024,
-        tools=[{
+        messages=[{"role": "user", "content": prompt}],
+        functions=[{
             "name": "split_note",
             "description": "Split a note into multiple notes if necessary",
-            "input_schema": {
+            "parameters": {
                 "type": "object",
                 "properties": {
                     "split_notes": {
@@ -238,15 +237,18 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
                 "required": ["split_notes"],
             },
         }],
-        tool_choice={"type": "tool", "name": "split_note"},
-        messages=[{"role": "user", "content": prompt}],
+        function_call={"name": "split_note"},
+        extra_headers={
+            "HTTP-Referer": "https://your-app-url.com",
+            "X-Title": "YourAppName",
+        },
     )
 
-    if not response.content or not isinstance(response.content[0], anthropic.types.ToolUseBlock):
-        raise ValueError(f"Unexpected response format from Claude API: {response.content}")
+    if not response.choices or not response.choices[0].function_call:
+        raise ValueError(f"Unexpected response format from OpenAI API: {response}")
 
-    print(f"Usage: Input tokens: {response.usage.input_tokens}, Output tokens: {response.usage.output_tokens}")
-    split_notes_dict = response.content[0].input
+    print(f"Usage: Prompt tokens: {response.usage.prompt_tokens}, Completion tokens: {response.usage.completion_tokens}")
+    split_notes_dict = json.loads(response.choices[0].function_call.arguments)
     split_notes = NoteSplit.model_validate(split_notes_dict).split_notes
 
     # Validate the split
@@ -275,13 +277,14 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
     {error_context}
     """
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=categorisationModel,
         max_tokens=1024,
-        tools=[{
+        messages=[{"role": "user", "content": prompt}],
+        functions=[{
             "name": "categorize_note",
             "description": "Categorize a note into one of the given categories",
-            "input_schema": {
+            "parameters": {
                 "type": "object",
                 "properties": {
                     "category": {
@@ -292,15 +295,18 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
                 "required": ["category"],
             },
         }],
-        tool_choice={"type": "tool", "name": "categorize_note"},
-        messages=[{"role": "user", "content": prompt}],
+        function_call={"name": "categorize_note"},
+        extra_headers={
+            "HTTP-Referer": "https://your-app-url.com",
+            "X-Title": "YourAppName",
+        },
     )
 
-    if not response.content or not isinstance(response.content[0], anthropic.types.ToolUseBlock):
-        raise ValueError(f"Unexpected response format from Claude API: {response.content}")
+    if not response.choices or not response.choices[0].function_call:
+        raise ValueError(f"Unexpected response format from OpenAI API: {response}")
 
-    print(f"Usage: Input tokens: {response.usage.input_tokens}, Output tokens: {response.usage.output_tokens}")
-    category_dict = response.content[0].input
+    print(f"Usage: Prompt tokens: {response.usage.prompt_tokens}, Completion tokens: {response.usage.completion_tokens}")
+    category_dict = json.loads(response.choices[0].function_call.arguments)
     category = NoteCategory.parse_obj(category_dict).category
 
     lowerCategoryNames = {category.lower().strip(): category for category in category_names}
@@ -376,14 +382,15 @@ Notes:
         })
 
     try:
-        response = client.messages.create(
+        response = client.chat.completions.create(
             model=generationModel,
             max_tokens=1024,
-            tools=[
+            messages=messages,
+            functions=[
                 {
                     "name": "generate_categories",
                     "description": "Generate categories for a set of notes",
-                    "input_schema": {
+                    "parameters": {
                         "type": "object",
                         "properties": {
                             "categories": {
@@ -404,17 +411,18 @@ Notes:
                     },
                 }
             ],
-            tool_choice={"type": "tool", "name": "generate_categories"},
-            messages=messages,
+            function_call={"name": "generate_categories"},
+            extra_headers={
+                "HTTP-Referer": "https://your-app-url.com",
+                "X-Title": "YourAppName",
+            },
         )
-        if response.content and isinstance(
-            response.content[0], anthropic.types.ToolUseBlock
-        ):
-            categories_dict = response.content[0].input
+        if response.choices and response.choices[0].function_call:
+            categories_dict = json.loads(response.choices[0].function_call.arguments)
             return Categories.model_validate(categories_dict)
         else:
             raise ValueError(
-                f"Unexpected response format from Claude API: {response.content}"
+                f"Unexpected response format from OpenAI API: {response}"
             )
     except Exception as e:
         logger.error(f"Error in generate_categories: {e}")
