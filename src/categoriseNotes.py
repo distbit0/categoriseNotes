@@ -1,11 +1,16 @@
 import argparse
+import time
 import pyperclip
 import re
+from typing import Callable, Any
+from functools import wraps
 import logging
 import sys
 from typing import List, Tuple, Dict, Optional
 from pydantic import BaseModel
 import anthropic
+from anthropic import RateLimitError
+from .prompts import splitPrompt, generateCategoriesPrompt
 
 handler = logging.StreamHandler(sys.stdout)
 
@@ -91,148 +96,176 @@ def normaliseText(text: str) -> str:
     text = re.sub(r'[^a-zA-Z0-9]', '', text)
     return text.strip()
 
+
+
+def handle_rate_limit(headers: Dict[str, str]) -> None:
+    """Log rate limit information and sleep if necessary."""
+    logger.warning("Rate limit encountered.")
+    
+    # Extract and log rate limit information
+    for limit_type in ['requests', 'tokens']:
+        limit = headers.get(f'anthropic-ratelimit-{limit_type}-limit')
+        remaining = headers.get(f'anthropic-ratelimit-{limit_type}-remaining')
+        reset = headers.get(f'anthropic-ratelimit-{limit_type}-reset')
+        logger.info(f"{limit_type.capitalize()}: {remaining}/{limit} (Reset at: {reset})")
+
+    retry_after = headers.get('retry-after')
+    if retry_after:
+        sleep_time = int(retry_after) + 1  # Add 1 second as a buffer
+        logger.info(f"Sleeping for {sleep_time} seconds before retrying...")
+        time.sleep(sleep_time)
+    else:
+        logger.info("No retry-after header provided. Sleeping for 60 seconds as a precaution.")
+        time.sleep(60)
+def retry_on_error(max_retries: int = 3) -> Callable:
+    """Decorator to retry function on specific errors."""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except (ValueError, RuntimeError) as e:
+                    logger.error(f"Error in {func.__name__} (attempt {attempt + 1}): {e}")
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(1)  # Wait a second before retrying
+            raise RuntimeError(f"Max retries ({max_retries}) reached in {func.__name__}")
+        return wrapper
+    return decorator
+
+
+def retry_on_rate_limit(max_retries: int = None) -> Callable:
+    """Decorator to retry function on rate limit error."""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            retries = 0
+            while max_retries is None or retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except RateLimitError as e:
+                    retries += 1
+                    logger.warning(f"Rate limit hit. Retry attempt {retries}")
+                    handle_rate_limit(e.response.headers)
+            raise RuntimeError(f"Max retries ({max_retries}) reached due to rate limiting.")
+        return wrapper
+    return decorator
+
+@retry_on_rate_limit()
+@retry_on_error()
 def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     category_names = [cat.name for cat in categories.categories]
     prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
     
-    Rules:
-    - DO split a note if BOTH of the below conditions are met. if either of them are not met, DO NOT split the note.
-        - the note contains meaningfully distinct sub-parts which very clearly do not all belong under a single one of the above categories
-        - the resulting split notes make sense in isolation & do not depend on each other for context
-    - Splits must only occur on newline characters.
-    - DO NOT just split a note just because it has some kind of dividers/sub-sections in it. Only split it if it has sub sections which belong in seperate categories!
-    - DO NOT split in the middle of a line of text.
-    - The resulting split pieces must add up exactly to the original note.
-    - DO NOT add or remove ANY text from the original note, or re-order the text!!
+    {splitPrompt}
 
     Note to potentially split:
     {note}
 
-    If you decide to split the note, return a list of the split notes. If no split is necessary, return a LIST (not merely a string) containing only the original note."""
+    If you decide to split the note, return a list of the split notes. If no split is necessary, return a list containing only the original note."""
 
-    for attempt in range(3):  # Try up to 3 times (original attempt + 2 retries)
-        try:
-            response = client.messages.create(
-                model=categorisationModel,
-                max_tokens=1024,
-                tools=[
-                    {
-                        "name": "split_note",
-                        "description": "Split a note into multiple notes if necessary",
-                        "input_schema": {
-                            "type": "object",
-                            "properties": {
-                                "split_notes": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "The list of split notes or a list containing just the original note if no split is necessary",
-                                }
-                            },
-                            "required": ["split_notes"],
-                        },
+    response = client.messages.create(
+        model=categorisationModel,
+        max_tokens=1024,
+        tools=[{
+            "name": "split_note",
+            "description": "Split a note into multiple notes if necessary",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "split_notes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "The list of split notes or a list containing just the original note if no split is necessary",
                     }
-                ],
-                tool_choice={"type": "tool", "name": "split_note"},
-                messages=[{"role": "user", "content": prompt}],
-            )
+                },
+                "required": ["split_notes"],
+            },
+        }],
+        tool_choice={"type": "tool", "name": "split_note"},
+        messages=[{"role": "user", "content": prompt}],
+    )
 
-            if response.content and isinstance(
-                response.content[0], anthropic.types.ToolUseBlock
-            ):
-                split_notes_dict = response.content[0].input
-                if type(split_notes_dict["split_notes"]) == str:
-                    split_notes_dict["split_notes"] = split_notes_dict["split_notes"].split("\n\n")
-                split_notes = NoteSplit.model_validate(split_notes_dict).split_notes
+    if not response.content or not isinstance(response.content[0], anthropic.types.ToolUseBlock):
+        raise ValueError(f"Unexpected response format from Claude API: {response.content}")
 
-                # Verify that the split notes add up to the original note
-                splitNoteText = normaliseText('\n'.join(split_notes))
-                originalText = normaliseText(note)
-                ## remove all non-alphanumeric characters
-                if splitNoteText != originalText:
-                    logger.error("New:\n"+splitNoteText)
-                    logger.error("Old:\n"+originalText)
-                    raise ValueError("The split notes do not match the original note exactly.")
+    split_notes_dict = response.content[0].input
+    split_notes = NoteSplit.model_validate(split_notes_dict).split_notes
 
-                # Verify that all splits occurred on newlines
-                original_lines = [normaliseText(line) for line in note.split('\n') if line.strip()]
-                original_lines = [line for line in original_lines if line]
-                split_lines = [normaliseText(line) for split_note in split_notes for line in split_note.split('\n') if line.strip()]
-                split_lines = [line for line in split_lines if line]
-                if original_lines != split_lines:
-                    logger.error("New:\n"+"\n".join(split_lines))
-                    logger.error(split_lines)
-                    logger.error("Old:\n"+"\n".join(original_lines))
-                    logger.error(original_lines)
-                    raise ValueError("Splits did not occur only on newline characters.")
-                if len(split_notes) > 1:
-                    logger.info(f"Split one note into {len(split_notes)} notes:\n______________\n"+"\n________________\n".join(split_notes)+"\n______________")
-                return split_notes
-            else:
-                raise ValueError(
-                    f"Unexpected response format from Claude API: {response.content}"
-                )
-        except Exception as e:
-            logger.error(f"Error in split_note_if_needed (attempt {attempt + 1}): {e}\nSplit notes dict: {split_notes_dict}")
-            if attempt < 2:  # If it's not the last attempt
-                # Inform Claude about the error
-                error_prompt = f"The previous attempt to split the note failed with the following error: {str(e)}. Please try again, paying special attention to the rules and ensuring the output matches the expected format."
-                logger.error("Error prompt: "+error_prompt)
-                client.messages.create(
-                    model=categorisationModel,
-                    max_tokens=100,
-                    messages=[{"role": "user", "content": error_prompt}],
-                )
-            else:
-                logger.warning("Max retries reached. Returning original note.")
-                return [note]  # Return the original note if all attempts fail
+    # Validate the split
+    validate_split_notes(note, split_notes)
 
-    # This line should never be reached due to the return in the else block above,
-    # but we include it for completeness
-    return [note]
+    if len(split_notes) > 1:
+        logger.info(f"Split one note into {len(split_notes)} notes:\n" + "\n".join(split_notes))
 
+    return split_notes
 
-def categorize_note(
-    note: str, prev_note: str, next_note: str, categories: Categories
-) -> str:
+def validate_split_notes(original_note: str, split_notes: List[str]) -> None:
+    """Validate that the split notes match the original note."""
+    split_text = normaliseText('\n'.join(split_notes))
+    original_text = normaliseText(original_note)
+    
+    if split_text != original_text:
+        logger.error(f"Split text:\n{split_text}")
+        logger.error(f"Original text:\n{original_text}")
+        raise ValueError("The split notes do not match the original note exactly.")
+
+    original_lines = [line for line in original_note.split('\n') if line.strip()]
+    split_lines = [line for note in split_notes for line in note.split('\n') if line.strip()]
+    
+    if original_lines != split_lines:
+        logger.error(f"Split lines:\n{split_lines}")
+        logger.error(f"Original lines:\n{original_lines}")
+        raise ValueError("Splits did not occur only on newline characters.")
+
+@retry_on_rate_limit()
+@retry_on_error()
+def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories) -> str:
     category_names = [cat.name for cat in categories.categories]
-    prompt = f"Categorize the following note into one of these categories: {', '.join(category_names)}. Consider the context provided by the previous and next notes.\n\nPrevious note:\n{prev_note}\n\nNote to categorize:\n{note}\n\nNext note:\n{next_note}"
+    prompt = f"""Categorize the following note into one of these categories: {', '.join(category_names)}. 
+    Consider the context provided by the previous and next notes.
 
-    try:
-        response = client.messages.create(
-            model=categorisationModel,
-            max_tokens=1024,
-            tools=[
-                {
-                    "name": "categorize_note",
-                    "description": "Categorize a note into one of the given categories",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "category": {
-                                "type": "string",
-                                "description": "The chosen category name",
-                            }
-                        },
-                        "required": ["category"],
-                    },
-                }
-            ],
-            tool_choice={"type": "tool", "name": "categorize_note"},
-            messages=[{"role": "user", "content": prompt}],
-        )
+    Previous note:
+    {prev_note}
 
-        if response.content and isinstance(
-            response.content[0], anthropic.types.ToolUseBlock
-        ):
-            category_dict = response.content[0].input
-            return NoteCategory.parse_obj(category_dict).category
-        else:
-            raise ValueError(
-                f"Unexpected response format from Claude API: {response.content}"
-            )
-    except Exception as e:
-        logger.error(f"Error in categorize_note: {e}")
-        raise
+    Note to categorize:
+    {note}
+
+    Next note:
+    {next_note}"""
+
+    response = client.messages.create(
+        model=categorisationModel,
+        max_tokens=1024,
+        tools=[{
+            "name": "categorize_note",
+            "description": "Categorize a note into one of the given categories",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "The chosen category name",
+                    }
+                },
+                "required": ["category"],
+            },
+        }],
+        tool_choice={"type": "tool", "name": "categorize_note"},
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    if not response.content or not isinstance(response.content[0], anthropic.types.ToolUseBlock):
+        raise ValueError(f"Unexpected response format from Claude API: {response.content}")
+
+    category_dict = response.content[0].input
+    category = NoteCategory.parse_obj(category_dict).category
+
+    if category not in category_names:
+        raise ValueError(f"Invalid category: {category}. Must be one of: {', '.join(category_names)}")
+
+    return category
 
 
 def write_categorized_notes(
@@ -278,20 +311,8 @@ def display_categories(categories, source):
         print(f"- {cat.name}")
 
 def generate_categories(notes, existing_categories=None, change_description=None):
-    prompt = f"""Below are notes I have written on a certain topic. Provide a list of sub topics which I can use to categorise these notes
-- Ensure there are sufficient categories to represent depth & breadth of notes
-- However also ensure no categories overlap/are redundant
-- Carefully read the notes to understand the material, and how I personally think about it
-- Align the categories with how you believe I would conceptually separate the notes in my mind
-- The categories should be useful groupings I can use to further develop my notes
-- Do not try to align the categories with ones from academia, politics and industry
-- Category names should be:
-    - very specific
-    - extremely non-generic
-    - heavily informed by the contents of the notes
-- Category names should not contain:
-    - a colon or have more than one part/section
-    - any fluff/cringe/commentary/hype
+    prompt = f"""{generateCategoriesPrompt}
+    
 Notes:
 {' '.join(notes)}"""
 
