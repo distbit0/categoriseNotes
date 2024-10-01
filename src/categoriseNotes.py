@@ -411,7 +411,7 @@ Notes:
             response.content[0], anthropic.types.ToolUseBlock
         ):
             categories_dict = response.content[0].input
-            return Categories.parse_obj(categories_dict)
+            return Categories.model_validate(categories_dict)
         else:
             raise ValueError(
                 f"Unexpected response format from Claude API: {response.content}"
