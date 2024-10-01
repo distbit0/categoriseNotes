@@ -96,7 +96,7 @@ def split_note_if_needed(note: str, categories: Categories) -> List[str]:
     prompt = f"""Split the following note into multiple notes if necessary to properly categorize them into the available categories: {', '.join(category_names)}. 
     
     Rules:
-    - Only split a note if BOTH of the below conditions are met:
+    - split a note if BOTH of the below conditions are met. do not split it otherwise
         - the note contains meaningfully distinct sub-parts which very clearly do not all belong under a single one of the above categories
         - the resulting split notes make sense in isolation, can be understood independently and do not depend on each other for context
     - Splits must only occur on newline characters.
