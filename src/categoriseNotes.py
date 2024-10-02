@@ -9,6 +9,7 @@ from functools import wraps
 import logging
 import sys
 from typing import List, Tuple, Dict, Callable, Any, Optional
+import http.client
 from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -16,7 +17,12 @@ import os
 from helperPrompts import splitPrompt, generateCategoriesPrompt
 from datetime import datetime, timezone
 
+class HTTPFilter(logging.Filter):
+    def filter(self, record):
+        return not (record.module == 'connectionpool' and record.levelname == 'DEBUG')
+
 handler = logging.StreamHandler(sys.stdout)
+handler.addFilter(HTTPFilter())
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +30,9 @@ logging.basicConfig(
     handlers=[handler]
 )
 logger = logging.getLogger(__name__)
+
+# Disable HTTP connection debugging
+http.client.HTTPConnection.debuglevel = 0
 
 load_dotenv()
 
