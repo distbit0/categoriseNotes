@@ -58,7 +58,7 @@ class RetryContext:
 
 
 class NoteCategory(BaseModel):
-    category: str
+    category_number: int
 
 class NoteSplit(BaseModel):
     split_notes: List[str]
@@ -68,6 +68,10 @@ class Category(BaseModel):
 
 class Categories(BaseModel):
     categories: List[Category]
+
+class CategoryChoice(BaseModel):
+    number: int
+    name: str
 
 
 
@@ -213,20 +217,23 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
 
 @retry_on_error()
 def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> str:
-    category_names = [cat.name for cat in categories.categories]
+    category_choices = [CategoryChoice(number=i+1, name=cat.name) for i, cat in enumerate(categories.categories)]
     
     error_context = ""
     if retry_context and retry_context.errors:
         error_context = f"\n\nPrevious attempts failed with the following errors:\n" + \
                         "\n".join(f"Attempt {i+1}: {str(e)}" for i, e in enumerate(retry_context.errors))
     
-    prompt = f"""Categorize the following note into one of these categories: \n{'\n'.join(category_names)}. 
+    prompt = f"""Categorize the following note into one of these numbered categories:
+{'\n'.join([f"{choice.number}. {choice.name}" for choice in category_choices])}
 
-    Note to categorize:
-    {note}
-    
-    {error_context}
-    """
+Note to categorize:
+{note}
+
+{error_context}
+
+Respond with ONLY the number of the chosen category.
+"""
 
     response = client.beta.chat.completions.parse(
         model=categorisationModel,
@@ -238,16 +245,12 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
         response_format=NoteCategory,
     )
 
-    category = response.choices[0].message.parsed.category
+    category_number = response.choices[0].message.parsed.category_number
 
-    lowerCategoryNames = {category.lower().strip(): category for category in category_names}
-    if category.lower().strip() in lowerCategoryNames:
-        category = lowerCategoryNames[category.lower().strip()]
+    if category_number < 1 or category_number > len(category_choices):
+        raise ValueError(f"Invalid category number: {category_number}. Must be between 1 and {len(category_choices)}")
 
-    if category not in category_names:
-        raise ValueError(f"Invalid category: {category}. Must be one of: \n{'\n'.join(category_names)}")
-
-    return category
+    return category_choices[category_number - 1].name
 
 
 def write_categorized_notes(
