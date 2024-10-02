@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 class HTTPFilter(logging.Filter):
     def filter(self, record):
-        return not (record.module == 'connectionpool' and record.levelname == 'DEBUG')
+        return not ("HTTP Request" in record.getMessage() or "200 OK" in record.getMessage())
 
 handler = logging.StreamHandler(sys.stdout)
 handler.addFilter(HTTPFilter())
@@ -34,8 +34,9 @@ logger = logging.getLogger(__name__)
 # Disable HTTP connection debugging
 http.client.HTTPConnection.debuglevel = 0
 
-# Set OpenAI library logging to WARNING
+# Set logging level for potentially noisy libraries
 logging.getLogger("openai").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 load_dotenv()
 
