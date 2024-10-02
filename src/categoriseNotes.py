@@ -367,8 +367,8 @@ def process_categories(notes, existing_categories=None):
         
         display_categories(categories, source)
         
-        choice = get_user_choice("What would you like to do with these categories?", ["keep", "edit", "revise", "new"])
-        if choice == "keep":
+        choice = get_user_choice("What would you like to do with these categories?", ["done", "edit", "revise", "new"])
+        if choice == "done":
             return categories
         elif choice == "edit":
             categories = edit_categories(categories)
