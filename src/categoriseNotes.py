@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 # Disable HTTP connection debugging
 http.client.HTTPConnection.debuglevel = 0
 
+# Set OpenAI library logging to WARNING
+logging.getLogger("openai").setLevel(logging.WARNING)
+
 load_dotenv()
 
 client = OpenAI(
