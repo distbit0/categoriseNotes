@@ -1,4 +1,0 @@
-{
-    "split": "",
-    "generateCategories": "Below are notes I have written on a certain topic. Provide a list of sub topics which I can use to categorise these notes\n- Ensure there are sufficient categories to represent depth & breadth of notes\n- However also ensure no categories overlap/are redundant\n- Carefully read the notes to understand the material, and how I personally think about it\n- Align the categories with how you believe I would conceptually separate the notes in my mind\n- The categories should be useful groupings I can use to further develop my notes\n- Do not try to align the categories with ones from academia, politics and industry\n- Category names should be:\n    - very specific\n    - extremely non-generic\n    - heavily informed by the contents of the notes\n- Category names should not contain:\n    - a colon or have more than one part/section\n    - any fluff/cringe/commentary/hype"
-}
