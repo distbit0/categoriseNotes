@@ -377,8 +377,8 @@ def process_categories(notes, existing_categories=None):
             modification_description = input("Please describe how you'd like to modify the categories: ")
             categories = generate_categories(notes, existing_categories=categories, change_description=modification_description)
             source = "Modified"
-        else:  # "new"
-            categories = None  # This will trigger generation of new categories in the next iteration
+        elif choice == "new":
+            categories = None  
 
     return categories
 
