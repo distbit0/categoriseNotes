@@ -69,9 +69,6 @@ class Category(BaseModel):
 class Categories(BaseModel):
     categories: List[Category]
 
-class CategoryChoice(BaseModel):
-    number: int
-    name: str
 
 
 
@@ -217,7 +214,7 @@ def split_note_if_needed(note: str, categories: Categories, retry_context: Optio
 
 @retry_on_error()
 def categorize_note(note: str, prev_note: str, next_note: str, categories: Categories, retry_context: Optional[RetryContext] = None) -> str:
-    category_choices = [CategoryChoice(number=i+1, name=cat.name) for i, cat in enumerate(categories.categories)]
+    category_list = [cat.name for cat in categories.categories]
     
     error_context = ""
     if retry_context and retry_context.errors:
@@ -225,7 +222,7 @@ def categorize_note(note: str, prev_note: str, next_note: str, categories: Categ
                         "\n".join(f"Attempt {i+1}: {str(e)}" for i, e in enumerate(retry_context.errors))
     
     prompt = f"""Categorize the following note into one of these numbered categories:
-{'\n'.join([f"{choice.number}. {choice.name}" for choice in category_choices])}
+{'\n'.join([f"{i+1}. {name}" for i, name in enumerate(category_list)])}
 
 Note to categorize:
 {note}
@@ -247,10 +244,10 @@ Respond with ONLY the number of the chosen category.
 
     category_number = response.choices[0].message.parsed.category_number
 
-    if category_number < 1 or category_number > len(category_choices):
-        raise ValueError(f"Invalid category number: {category_number}. Must be between 1 and {len(category_choices)}")
+    if category_number < 1 or category_number > len(category_list):
+        raise ValueError(f"Invalid category number: {category_number}. Must be between 1 and {len(category_list)}")
 
-    return category_choices[category_number - 1].name
+    return category_list[category_number - 1]
 
 
 def write_categorized_notes(
