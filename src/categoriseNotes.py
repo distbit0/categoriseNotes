@@ -45,7 +45,7 @@ client = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 
-categoryPrefix = "## -- "
+categoryHeadingPrefix = "## -- "
 
 generationModel = "anthropic/claude-3-opus:beta"
 categorisationModel="openai/gpt-4o-2024-08-06"
@@ -88,10 +88,10 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
     category_lines = []
     found_normal_line = False
     for line in lines:
-        if line.startswith(categoryPrefix):
+        if line.startswith(categoryHeadingPrefix):
             category_lines.append(line)
         elif not found_normal_line and (
-            line.startswith("$") or (line.startswith("#") and not line.startswith(categoryPrefix))
+            line.startswith("$") or (line.startswith("#") and not line.startswith(categoryHeadingPrefix))
         ):
             special_lines.append(line)
         else:
@@ -102,9 +102,9 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
     special_content = "\n".join(special_lines) + "\n" if special_lines else ""
     content = "\n".join(normal_lines)
 
-    # Filter out lines starting with categoryPrefix
+    # Filter out lines starting with categoryHeadingPrefix
     content_lines = [
-        line for line in content.split("\n") if not line.startswith(categoryPrefix)
+        line for line in content.split("\n") if not line.startswith(categoryHeadingPrefix)
     ]
 
     # Rejoin lines and split notes
@@ -115,7 +115,7 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
 
 
 def extract_existing_categories(category_lines: List[str]) -> Categories:
-    categories = [Category(name=line[len(categoryPrefix):].strip().strip(":")) for line in category_lines]
+    categories = [Category(name=line[len(categoryHeadingPrefix):].strip().strip(":")) for line in category_lines]
     return Categories(categories=categories)
 
 
@@ -257,7 +257,7 @@ def write_categorized_notes(
         file.write(front_matter)
         file.write(special_content)
         for category, notes in categorized_notes.items():
-            file.write(f"\n\n\n\n\n\n\n\n\n{categoryPrefix}{category}:\n\n")
+            file.write(f"\n\n\n\n\n\n\n\n\n{categoryHeadingPrefix}{category}:\n\n")
             file.write("\n\n".join(notes))
     logger.info(f"Categorized notes written back to {file_path}")
 
