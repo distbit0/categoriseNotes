@@ -1,21 +1,21 @@
-import argparse
-import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+from functools import wraps
+from helperPrompts import splitPrompt, generateCategoriesPrompt
+from openai import OpenAI
+from pydantic import BaseModel
 from tqdm import tqdm
-import time
+from typing import List, Tuple, Callable, Any, Optional
+import argparse
+import http.client
+import json
+import logging
+import os
 import pyperclip
 import re
-from functools import wraps
-import logging
 import sys
-from typing import List, Tuple, Dict, Callable, Any, Optional
-import http.client
-from pydantic import BaseModel
-from openai import OpenAI
-from dotenv import load_dotenv
-import os
-from helperPrompts import splitPrompt, generateCategoriesPrompt
-from datetime import datetime, timezone
+import time
 
 class HTTPFilter(logging.Filter):
     def filter(self, record):
