@@ -256,9 +256,10 @@ def write_categorized_notes(
     with open(file_path, "w") as file:
         file.write(front_matter)
         file.write(special_content)
+        file.write("\n\n")
         for category, notes in categorized_notes.items():
-            file.write(f"\n\n\n\n\n\n\n\n\n{categoryHeadingPrefix}{category}:\n\n")
-            file.write("\n\n".join(notes))
+            file.write(f"{categoryHeadingPrefix}{category}:\n\n")
+            file.write("\n\n".join(notes) + "\n\n\n\n\n\n\n\n\n")
     logger.info(f"Categorized notes written back to {file_path}")
 
 
