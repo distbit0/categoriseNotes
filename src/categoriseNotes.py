@@ -285,7 +285,7 @@ def generate_categories(notes, existing_categories=None, change_description=None
             "type": "function",
             "function": {
                 "name": "create_categories",
-                "description": "Generate categories for a set of notes",
+                "description": "Create a list of categories based on the given notes",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -295,7 +295,6 @@ def generate_categories(notes, existing_categories=None, change_description=None
                                 "type": "object",
                                 "properties": {
                                     "name": {"type": "string"},
-                                    "description": "Name of the category",
                                 },
                                 "required": ["name"]
                             }
@@ -307,12 +306,10 @@ def generate_categories(notes, existing_categories=None, change_description=None
         }
     ]
 
-    prompt = f"""{generateCategoriesPrompt}
-    
-Notes:
-{' '.join(notes)}"""
+    prompt = f"""{generateCategoriesPrompt}\n\n Notes:\n{'\n\n'.join(notes)}"""
 
     messages = [
+        {"role": "system", "content": "You are an expert at generating categories for a set of notes."},
         {"role": "user", "content": prompt}
     ]
 
@@ -333,7 +330,7 @@ Notes:
             model=generationModel,
             messages=messages,
             tools=tools,
-            tool_choice={"type": "tool", "name": "generate_categories"},
+            tool_choice={"type": "function", "function": {"name": "create_categories"}}
         )
         
         # Extract the function call from the response
@@ -343,7 +340,7 @@ Notes:
         # Convert the categories data to your Categories object
         return Categories(categories=[Category(**cat) for cat in categories_data['categories']])
     except Exception as e:
-        logger.error(f"Error in generate_categories: {e}")
+        logger.error(f"Error in generate_categories: {e}, messages: {messages}, response: {response}")
         raise
 
 def process_categories(notes, existing_categories=None):
