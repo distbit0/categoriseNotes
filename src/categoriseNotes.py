@@ -388,7 +388,7 @@ def categorize_notes(notes, categories, split):
     
     # Wrap the notes list with tqdm for progress tracking
     for i, note in enumerate(tqdm(notes, desc="Categorizing notes", unit="note")):
-        split_notes = split_note_if_needed(note, categories) if split and note.count('\n') > 1 else [note]
+        split_notes = split_note_if_needed(note, categories) if split and note.count('\n') >= 1 else [note]
         for split_note in split_notes:
             prev_note = notes[i - 1] if i > 0 else ""
             next_note = notes[i + 1] if i < len(notes) - 1 else ""
