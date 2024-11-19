@@ -368,9 +368,10 @@ def generate_categories(notes, existing_categories=None, change_description=None
         logger.error(f"Error in generate_categories: {e}, messages: {messages}, response: {response}")
         raise
 
-def process_categories(notes, existing_categories=None):
+def process_categories(notes, existing_categories=None, only_new=False):
     categories = Categories(categories=[cat for cat in existing_categories.categories]) if existing_categories else None
     source = "Existing" if existing_categories else "Generated"
+    process_type = "new" if only_new else "all"
     
     while True:
         if categories is None:
@@ -412,19 +413,21 @@ def main():
     parser = argparse.ArgumentParser(description="Categorize notes from a markdown file.")
     parser.add_argument("file_path", help="Path to the markdown file containing notes.")
     parser.add_argument("--split", action="store_true", help="Enable note splitting")
-    parser.add_argument("--only-new", action="store_true", help="Only process notes below the divider")
     args = parser.parse_args()
 
     try:
-        front_matter, special_content, notes, category_lines = parse_notes(args.file_path, args.only_new)
+        # Ask user whether to process only new notes
+        only_new = get_user_choice("Process only new notes (below divider) or all notes?", ["new", "all"]) == "new"
+        
+        front_matter, special_content, notes, category_lines = parse_notes(args.file_path, only_new)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
 
         existing_categories = extract_existing_categories(category_lines) if len(category_lines) > 1 else None
-        categories = process_categories(notes, existing_categories)
+        categories = process_categories(notes, existing_categories, only_new)
         
         categorized_notes = categorize_notes(notes, categories, args.split)
         
-        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes, args.only_new)
+        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes, only_new)
         logger.info("Categorization completed successfully")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
