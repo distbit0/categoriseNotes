@@ -47,7 +47,7 @@ client = OpenAI(
 
 categoryHeadingPrefix = "## -- "
 MIN_DIVIDER_LENGTH = 6
-CLEAN_DIVIDER = "_" * 40
+CLEAN_DIVIDER = "_" * 80
 
 def is_note_divider(line: str) -> bool:
     """Check if a line is a note divider (contains > MIN_DIVIDER_LENGTH underscores)"""
