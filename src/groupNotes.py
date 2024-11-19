@@ -268,28 +268,38 @@ def write_categorized_notes(
     only_new: bool = False
 ):
     if only_new:
-        # Read existing content up to divider
+        # Read existing content and merge with new notes
         with open(file_path, "r") as file:
             content = file.read()
             content_lines = content.split('\n')
             divider_index = next((i for i, line in enumerate(content_lines) if is_note_divider(line)), -1)
             
             if divider_index != -1:
+                # Parse existing categorized notes
                 existing_content = '\n'.join(content_lines[:divider_index])
-            else:
-                existing_content = content.strip()
+                current_category = None
+                for line in content_lines[:divider_index]:
+                    if line.startswith(categoryHeadingPrefix):
+                        current_category = line[len(categoryHeadingPrefix):].strip().strip(':')
+                    elif current_category and line.strip():
+                        note_lines = []
+                        while line and line.strip():
+                            note_lines.append(line)
+                            if content_lines.index(line) + 1 < len(content_lines):
+                                line = content_lines[content_lines.index(line) + 1]
+                            else:
+                                break
+                        if note_lines:
+                            note = '\n'.join(note_lines).strip()
+                            if note:
+                                categorized_notes.setdefault(current_category, []).append(note)
     
     with open(file_path, "w") as file:
         file.write(front_matter)
         file.write(special_content)
         file.write("\n\n")
         
-        if only_new:
-            # Write existing content first
-            file.write(existing_content)
-            file.write("\n\n")
-            
-        # Write new categorized notes
+        # Write all notes organized by category
         for category, notes in categorized_notes.items():
             file.write(f"{categoryHeadingPrefix}{category}:\n\n")
             file.write("\n\n".join(notes) + "\n\n\n\n\n\n\n\n\n")
