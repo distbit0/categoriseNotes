@@ -46,6 +46,7 @@ client = OpenAI(
 )
 
 categoryHeadingPrefix = "## -- "
+newNotesDivider = "_" * 40
 
 generationModel = "anthropic/claude-3-opus:beta"
 categorisationModel="openai/gpt-4o-2024-08-06"
@@ -73,7 +74,7 @@ class Categories(BaseModel):
 
 
 
-def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
+def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[str], List[str]]:
     with open(file_path, "r") as file:
         content = file.read()
 
@@ -110,8 +111,16 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[str], List[str]]:
 
     # Rejoin lines and split notes
     content = "\n".join(content_lines)
+    
+    # Split content at divider if only_new is True
+    if only_new:
+        parts = content.split(newNotesDivider, 1)
+        if len(parts) > 1:
+            content = parts[1]
+        else:
+            content = ""  # No new notes found
+            
     notes = [note.strip() for note in content.split("\n\n") if note.strip()]
-
     return front_matter, special_content, notes, category_lines
 
 
@@ -251,7 +260,8 @@ Respond with ONLY the number of the chosen category.
 
 
 def write_categorized_notes(
-    file_path: str, front_matter: str, special_content: str, categorized_notes: dict
+    file_path: str, front_matter: str, special_content: str, categorized_notes: dict,
+    only_new: bool = False
 ):
     with open(file_path, "w") as file:
         file.write(front_matter)
@@ -260,6 +270,7 @@ def write_categorized_notes(
         for category, notes in categorized_notes.items():
             file.write(f"{categoryHeadingPrefix}{category}:\n\n")
             file.write("\n\n".join(notes) + "\n\n\n\n\n\n\n\n\n")
+        file.write(f"\n{newNotesDivider}\n")
     logger.info(f"Categorized notes written back to {file_path}")
 
 
@@ -401,10 +412,11 @@ def main():
     parser = argparse.ArgumentParser(description="Categorize notes from a markdown file.")
     parser.add_argument("file_path", help="Path to the markdown file containing notes.")
     parser.add_argument("--split", action="store_true", help="Enable note splitting")
+    parser.add_argument("--only-new", action="store_true", help="Only process notes below the divider")
     args = parser.parse_args()
 
     try:
-        front_matter, special_content, notes, category_lines = parse_notes(args.file_path)
+        front_matter, special_content, notes, category_lines = parse_notes(args.file_path, args.only_new)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
 
         existing_categories = extract_existing_categories(category_lines) if len(category_lines) > 1 else None
@@ -412,7 +424,7 @@ def main():
         
         categorized_notes = categorize_notes(notes, categories, args.split)
         
-        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes)
+        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes, args.only_new)
         logger.info("Categorization completed successfully")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
