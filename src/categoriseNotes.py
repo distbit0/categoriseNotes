@@ -413,11 +413,14 @@ def main():
     parser = argparse.ArgumentParser(description="Categorize notes from a markdown file.")
     parser.add_argument("file_path", help="Path to the markdown file containing notes.")
     parser.add_argument("--split", action="store_true", help="Enable note splitting")
+    parser.add_argument("--only-new", action="store_true", help="Only process notes below the divider")
     args = parser.parse_args()
 
     try:
-        # Ask user whether to process only new notes
-        only_new = get_user_choice("Process only new notes (below divider) or all notes?", ["new", "all"]) == "new"
+        # Only ask interactively if --only-new wasn't specified
+        only_new = args.only_new
+        if not args.only_new:
+            only_new = get_user_choice("Process only new notes (below divider) or all notes?", ["new", "all"]) == "new"
         
         front_matter, special_content, notes, category_lines = parse_notes(args.file_path, only_new)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
