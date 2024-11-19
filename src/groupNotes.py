@@ -46,7 +46,12 @@ client = OpenAI(
 )
 
 categoryHeadingPrefix = "## -- "
-newNotesDivider = "_" * 40
+MIN_DIVIDER_LENGTH = 6
+CLEAN_DIVIDER = "_" * 40
+
+def is_note_divider(line: str) -> bool:
+    """Check if a line is a note divider (contains > MIN_DIVIDER_LENGTH underscores)"""
+    return line.strip().count('_') >= MIN_DIVIDER_LENGTH
 
 generationModel = "anthropic/claude-3-opus:beta"
 categorisationModel="openai/gpt-4o-2024-08-06"
@@ -74,7 +79,12 @@ class Categories(BaseModel):
 
 
 
-def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[str], List[str]]:
+@dataclass
+class Note:
+    content: str
+    category: Optional[str] = None
+
+def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[Note], List[str]]:
     with open(file_path, "r") as file:
         content = file.read()
 
@@ -89,8 +99,19 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
     normal_lines = []
     category_lines = []
     found_normal_line = False
+    
+    # Track current category and whether we're below divider
+    current_category = None
+    below_divider = False
+    
     for line in lines:
+        if is_note_divider(line):
+            below_divider = True
+            normal_lines.append(line)
+            continue
+            
         if line.startswith(categoryHeadingPrefix):
+            current_category = line[len(categoryHeadingPrefix):].strip().strip(":")
             category_lines.append(line)
         elif not found_normal_line and (
             line.startswith("$") or (line.startswith("#") and not line.startswith(categoryHeadingPrefix))
@@ -104,15 +125,45 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
     special_content = "\n".join(special_lines) + "\n" if special_lines else ""
     content = "\n".join(normal_lines)
 
-    # Filter out lines starting with categoryHeadingPrefix
-    content_lines = [
-        line for line in content.split("\n") if not line.startswith(categoryHeadingPrefix)
-    ]
-
-    # Rejoin lines and split notes
-    content = "\n".join(content_lines)
+    # Split into notes and track categories
+    raw_notes = []
+    current_note_lines = []
+    current_note_category = None
     
-    notes = [note.strip() for note in content.split("\n\n") if note.strip()]
+    for line in content.split("\n"):
+        if is_note_divider(line):
+            if current_note_lines:
+                note_content = "\n".join(current_note_lines).strip()
+                if note_content:
+                    raw_notes.append(Note(content=note_content, 
+                                        category=None if below_divider or only_new else current_note_category))
+            current_note_lines = []
+            below_divider = True
+        elif line.startswith(categoryHeadingPrefix):
+            if current_note_lines:
+                note_content = "\n".join(current_note_lines).strip()
+                if note_content:
+                    raw_notes.append(Note(content=note_content, 
+                                        category=None if below_divider or only_new else current_note_category))
+            current_note_lines = []
+            current_note_category = line[len(categoryHeadingPrefix):].strip().strip(":")
+        elif line.strip():
+            current_note_lines.append(line)
+        elif current_note_lines:  # Empty line after note content
+            note_content = "\n".join(current_note_lines).strip()
+            if note_content:
+                raw_notes.append(Note(content=note_content, 
+                                    category=None if below_divider or only_new else current_note_category))
+            current_note_lines = []
+
+    # Add final note if exists
+    if current_note_lines:
+        note_content = "\n".join(current_note_lines).strip()
+        if note_content:
+            raw_notes.append(Note(content=note_content, 
+                                category=None if below_divider or only_new else current_note_category))
+
+    notes = [note for note in raw_notes if note.content.strip()]
     return front_matter, special_content, notes, category_lines
 
 
@@ -262,7 +313,7 @@ def write_categorized_notes(
         for category, notes in categorized_notes.items():
             file.write(f"{categoryHeadingPrefix}{category}:\n\n")
             file.write("\n\n".join(notes) + "\n\n\n\n\n\n\n\n\n")
-        file.write(f"\n{newNotesDivider}\n")
+        file.write(f"\n{CLEAN_DIVIDER}\n")
     logger.info(f"Categorized notes written back to {file_path}")
 
 
@@ -387,15 +438,22 @@ def process_categories(notes, existing_categories=None, only_new=False):
 
     return categories
 
-def categorize_notes(notes, categories, split):
+def categorize_notes(notes: List[Note], categories: Categories, split: bool) -> dict:
     categorized_notes = {}
+    category_names = [cat.name for cat in categories.categories]
     
     # Wrap the notes list with tqdm for progress tracking
     for i, note in enumerate(tqdm(notes, desc="Categorizing notes", unit="note")):
-        split_notes = split_note_if_needed(note, categories) if split and note.count('\n') >= 1 else [note]
+        # If note has an existing category that's still valid, use it
+        if note.category and note.category in category_names:
+            categorized_notes.setdefault(note.category, []).append(note.content)
+            continue
+            
+        # Otherwise, process the note
+        split_notes = split_note_if_needed(note.content, categories) if split and note.content.count('\n') >= 1 else [note.content]
         for split_note in split_notes:
-            prev_note = notes[i - 1] if i > 0 else ""
-            next_note = notes[i + 1] if i < len(notes) - 1 else ""
+            prev_note = notes[i - 1].content if i > 0 else ""
+            next_note = notes[i + 1].content if i < len(notes) - 1 else ""
             category = categorize_note(split_note, prev_note, next_note, categories)
             categorized_notes.setdefault(category, []).append(split_note)
     
