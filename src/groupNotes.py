@@ -46,9 +46,7 @@ client = OpenAI(
 )
 
 categoryHeadingPrefix = "## -- "
-def is_note_divider(line: str) -> bool:
-    """Check if a line is a note divider (contains > 6 underscore characters)"""
-    return line.count('_') > 6
+newNotesDivider = "_" * 40
 
 generationModel = "anthropic/claude-3-opus:beta"
 categorisationModel="openai/gpt-4o-2024-08-06"
@@ -114,17 +112,7 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
     # Rejoin lines and split notes
     content = "\n".join(content_lines)
     
-    # Handle content based on only_new flag
-    content_lines = content.split('\n')
-    divider_index = next((i for i, line in enumerate(content_lines) if is_note_divider(line)), -1)
-    
-    if only_new and divider_index != -1:
-        # Only process notes after the divider
-        new_content = '\n'.join(content_lines[divider_index + 1:])
-        notes = [note.strip() for note in new_content.split("\n\n") if note.strip()]
-    else:
-        # Process all notes
-        notes = [note.strip() for note in content.split("\n\n") if note.strip()]
+    notes = [note.strip() for note in content.split("\n\n") if note.strip()]
     return front_matter, special_content, notes, category_lines
 
 
@@ -267,46 +255,14 @@ def write_categorized_notes(
     file_path: str, front_matter: str, special_content: str, categorized_notes: dict,
     only_new: bool = False
 ):
-    if only_new:
-        # Read existing content and merge with new notes
-        with open(file_path, "r") as file:
-            content = file.read()
-            content_lines = content.split('\n')
-            divider_index = next((i for i, line in enumerate(content_lines) if is_note_divider(line)), -1)
-            
-            if divider_index != -1:
-                # Parse existing categorized notes
-                existing_content = '\n'.join(content_lines[:divider_index])
-                current_category = None
-                for line in content_lines[:divider_index]:
-                    if line.startswith(categoryHeadingPrefix):
-                        current_category = line[len(categoryHeadingPrefix):].strip().strip(':')
-                    elif current_category and line.strip():
-                        note_lines = []
-                        while line and line.strip():
-                            note_lines.append(line)
-                            if content_lines.index(line) + 1 < len(content_lines):
-                                line = content_lines[content_lines.index(line) + 1]
-                            else:
-                                break
-                        if note_lines:
-                            note = '\n'.join(note_lines).strip()
-                            if note:
-                                categorized_notes.setdefault(current_category, []).append(note)
-    
     with open(file_path, "w") as file:
         file.write(front_matter)
         file.write(special_content)
         file.write("\n\n")
-        
-        # Write all notes organized by category
         for category, notes in categorized_notes.items():
             file.write(f"{categoryHeadingPrefix}{category}:\n\n")
             file.write("\n\n".join(notes) + "\n\n\n\n\n\n\n\n\n")
-        
-        # Add divider for future new notes
-        file.write("\n" + "_" * 40 + "\n")
-    
+        file.write(f"\n{newNotesDivider}\n")
     logger.info(f"Categorized notes written back to {file_path}")
 
 
