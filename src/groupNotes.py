@@ -84,7 +84,7 @@ class Note:
     content: str
     category: Optional[str] = None
 
-def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[Note], List[str]]:
+def parse_notes(file_path: str) -> Tuple[str, str, List[Note], List[str]]:
     with open(file_path, "r") as file:
         content = file.read()
 
@@ -101,7 +101,6 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
     found_normal_line = False
     
     # Track current category and whether we're below divider
-    current_category = None
     below_divider = False
     
     for line in lines:
@@ -111,7 +110,6 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
             continue
             
         if line.startswith(categoryHeadingPrefix):
-            current_category = line[len(categoryHeadingPrefix):].strip().strip(":")
             category_lines.append(line)
         elif not found_normal_line and (
             line.startswith("$") or (line.startswith("#") and not line.startswith(categoryHeadingPrefix))
@@ -136,7 +134,7 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
                 note_content = "\n".join(current_note_lines).strip()
                 if note_content:
                     raw_notes.append(Note(content=note_content, 
-                                        category=None if below_divider or only_new else current_note_category))
+                                        category=None if below_divider else current_note_category))
             current_note_lines = []
             below_divider = True
         elif line.startswith(categoryHeadingPrefix):
@@ -144,7 +142,7 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
                 note_content = "\n".join(current_note_lines).strip()
                 if note_content:
                     raw_notes.append(Note(content=note_content, 
-                                        category=None if below_divider or only_new else current_note_category))
+                                        category=None if below_divider else current_note_category))
             current_note_lines = []
             current_note_category = line[len(categoryHeadingPrefix):].strip().strip(":")
         elif line.strip():
@@ -153,7 +151,7 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
             note_content = "\n".join(current_note_lines).strip()
             if note_content:
                 raw_notes.append(Note(content=note_content, 
-                                    category=None if below_divider or only_new else current_note_category))
+                                    category=None if below_divider else current_note_category))
             current_note_lines = []
 
     # Add final note if exists
@@ -161,7 +159,7 @@ def parse_notes(file_path: str, only_new: bool = False) -> Tuple[str, str, List[
         note_content = "\n".join(current_note_lines).strip()
         if note_content:
             raw_notes.append(Note(content=note_content, 
-                                category=None if below_divider or only_new else current_note_category))
+                                category=None if below_divider else current_note_category))
 
     notes = [note for note in raw_notes if note.content.strip()]
     return front_matter, special_content, notes, category_lines
@@ -302,10 +300,7 @@ Respond with ONLY the number of the chosen category.
     return category_list[category_number - 1]
 
 
-def write_categorized_notes(
-    file_path: str, front_matter: str, special_content: str, categorized_notes: dict,
-    only_new: bool = False
-):
+def write_categorized_notes(file_path: str, front_matter: str, special_content: str, categorized_notes: dict):
     with open(file_path, "w") as file:
         file.write(front_matter)
         file.write(special_content)
@@ -411,10 +406,9 @@ def generate_categories(notes, existing_categories=None, change_description=None
         logger.error(f"Error in generate_categories: {e}, messages: {messages}, response: {response}")
         raise
 
-def process_categories(notes, existing_categories=None, only_new=False):
+def process_categories(notes, existing_categories=None):
     categories = Categories(categories=[cat for cat in existing_categories.categories]) if existing_categories else None
     source = "Existing" if existing_categories else "Generated"
-    process_type = "new" if only_new else "all"
     
     while True:
         if categories is None:
@@ -468,19 +462,15 @@ def main():
 
     try:
         # Only ask interactively if --only-new wasn't specified
-        only_new = args.only_new
-        if not args.only_new:
-            only_new = get_user_choice("Process only new notes (below divider) or all notes?", ["new", "all"]) == "new"
-        
-        front_matter, special_content, notes, category_lines = parse_notes(args.file_path, only_new)
+        front_matter, special_content, notes, category_lines = parse_notes(args.file_path)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
 
         existing_categories = extract_existing_categories(category_lines) if len(category_lines) > 1 else None
-        categories = process_categories(notes, existing_categories, only_new)
+        categories = process_categories(notes, existing_categories)
         
         categorized_notes = categorize_notes(notes, categories, args.split)
         
-        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes, only_new)
+        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes)
         logger.info("Categorization completed successfully")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
