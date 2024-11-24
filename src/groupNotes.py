@@ -369,7 +369,7 @@ def generate_categories(notes, existing_categories=None, change_description=None
         }
     ]
 
-    prompt = f"""{generateCategoriesPrompt}\n\n Notes:\n{'\n\n'.join(notes)}"""
+    prompt = f"""{generateCategoriesPrompt}\n\n Notes:\n{'\n\n'.join([note.content for note in notes])}"""
 
     messages = [
         {"role": "system", "content": "You are an expert at generating categories for a set of notes."},
