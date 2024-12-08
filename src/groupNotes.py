@@ -111,6 +111,8 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[Note], List[str]]:
             
         if line.startswith(categoryHeadingPrefix):
             category_lines.append(line)
+            found_normal_line = True
+            normal_lines.append(line)
         elif not found_normal_line and (
             line.startswith("$") or (line.startswith("#") and not line.startswith(categoryHeadingPrefix))
         ):
@@ -127,8 +129,10 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[Note], List[str]]:
     raw_notes = []
     current_note_lines = []
     current_note_category = None
-    
-    for line in content.split("\n"):
+    below_divider = False
+   
+    # purpose of the below is to split text on empty lines, category headers and dividers
+    for line in content.split("\n"): 
         if is_note_divider(line):
             if current_note_lines:
                 note_content = "\n".join(current_note_lines).strip()
@@ -160,7 +164,6 @@ def parse_notes(file_path: str) -> Tuple[str, str, List[Note], List[str]]:
         if note_content:
             raw_notes.append(Note(content=note_content, 
                                 category=None if below_divider else current_note_category))
-
     notes = [note for note in raw_notes if note.content.strip()]
     return front_matter, special_content, notes, category_lines
 
@@ -457,11 +460,9 @@ def main():
     parser = argparse.ArgumentParser(description="Categorize notes from a markdown file.")
     parser.add_argument("file_path", help="Path to the markdown file containing notes.")
     parser.add_argument("--split", action="store_true", help="Enable note splitting")
-    parser.add_argument("--only-new", action="store_true", help="Only process notes below the divider")
     args = parser.parse_args()
 
     try:
-        # Only ask interactively if --only-new wasn't specified
         front_matter, special_content, notes, category_lines = parse_notes(args.file_path)
         logger.info(f"Parsed {len(notes)} notes from {args.file_path}")
 
