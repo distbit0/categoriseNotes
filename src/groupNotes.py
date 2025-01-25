@@ -45,7 +45,7 @@ client = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 
-categoryHeadingPrefix = "## -- "
+categoryHeadingPrefix = "# -- "
 MIN_DIVIDER_LENGTH = 6
 CLEAN_DIVIDER = "_" * 80
 
