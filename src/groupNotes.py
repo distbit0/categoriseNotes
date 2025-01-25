@@ -303,16 +303,18 @@ Respond with ONLY the number of the chosen category.
     return category_list[category_number - 1]
 
 
-def write_categorized_notes(file_path: str, front_matter: str, special_content: str, categorized_notes: dict):
+def write_categorized_notes(file_path: str, front_matter: str, special_content: str, categorized_notes: dict, categories: Categories):
     with open(file_path, "w") as file:
         file.write(front_matter)
         file.write(special_content)
         file.write("\n\n")
-        for category, notes in categorized_notes.items():
-            file.write(f"{categoryHeadingPrefix}{category}:\n\n")
+        # Iterate through categories in their original order
+        for category_obj in categories.categories:
+            category_name = category_obj.name
+            notes = categorized_notes.get(category_name, [])
+            file.write(f"{categoryHeadingPrefix}{category_name}:\n\n")
             file.write("\n\n".join(notes) + "\n\n\n\n\n\n\n\n\n")
         file.write(f"\n{CLEAN_DIVIDER}\n")
-    logger.info(f"Categorized notes written back to {file_path}")
 
 
 def get_user_choice(prompt: str, options: List[str]) -> str:
@@ -471,7 +473,7 @@ def main():
         
         categorized_notes = categorize_notes(notes, categories, args.split)
         
-        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes)
+        write_categorized_notes(args.file_path, front_matter, special_content, categorized_notes, categories)
         logger.info("Categorization completed successfully")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
