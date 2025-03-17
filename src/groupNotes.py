@@ -59,7 +59,7 @@ def is_note_divider(line: str) -> bool:
     return line.strip().count("_") >= MIN_DIVIDER_LENGTH
 
 
-generationModel = "anthropic/claude-3-opus:beta"
+generationModel = "openai/o3-mini-high"
 categorisationModel = "openai/gpt-4o-2024-08-06"
 
 
