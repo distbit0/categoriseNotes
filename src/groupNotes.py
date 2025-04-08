@@ -60,7 +60,7 @@ def is_note_divider(line: str) -> bool:
 
 
 generationModel = "openai/o3-mini-high"
-categorisationModel = "openai/gpt-4o-2024-08-06"
+categorisationModel = "openai/gpt-4o-2024-11-20"
 
 
 @dataclass

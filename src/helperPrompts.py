@@ -1,14 +1,16 @@
 generateCategoriesPrompt = """Below are notes I have written on a certain topic. Provide a list of sub topics which I can use to categorise these notes
-- Ensure there are sufficient categories to represent depth & breadth of notes
-- However also ensure no categories overlap/are redundant
+- Ensure there are sufficient categories to represent the depth & breadth of the notes
+- No categories should overlap/be redundant
 - Carefully read the notes to understand the material, and how I personally think about it
 - Align the categories with how you believe I would conceptually separate the notes in my mind
-- The categories should be useful groupings I can use to further develop my notes
+- The categories should be useful groupings I can use to then further develop my notes
+- Take note of any existing text in the notes which looks like a category heading (and decide whether to include it)
 - Do not try to align the categories with ones from academia, politics and industry
 - Category names should be:
     - very specific
+    - self-descriptive
     - extremely non-generic
-    - heavily informed by the contents of the notes
+    - heavily informed by the contents and details of the notes
 - Category names should not contain:
     - a colon or have more than one part/section
     - any fluff/cringe/commentary/hype"""
