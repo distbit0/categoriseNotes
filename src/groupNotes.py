@@ -50,13 +50,16 @@ client = OpenAI(
 )
 
 categoryHeadingPrefix = "# -- "
-MIN_DIVIDER_LENGTH = 6
-CLEAN_DIVIDER = "_" * 80
+NOTE_DIVIDER = "# -- SCRATCHPAD"
 
 
 def is_note_divider(line: str) -> bool:
-    """Check if a line is a note divider (contains > MIN_DIVIDER_LENGTH underscores)"""
-    return line.strip().count("_") >= MIN_DIVIDER_LENGTH
+    """Check if a line is a note divider (matches the note divider format or legacy format)"""
+    line = line.strip()
+    if line == NOTE_DIVIDER:
+        return True
+    # Legacy divider check (for backward compatibility)
+    return line.count("_") >= 6
 
 
 generationModel = "openai/o3-mini-high"
@@ -385,7 +388,7 @@ def write_categorized_notes(
             notes = categorized_notes.get(category_name, [])
             file.write(f"{categoryHeadingPrefix}{category_name}:\n\n")
             file.write("\n\n".join(notes) + "\n\n\n\n\n\n\n\n\n")
-        file.write(f"\n{CLEAN_DIVIDER}\n")
+        file.write(f"\n{NOTE_DIVIDER}\n")
 
 
 def get_user_choice(prompt: str, options: List[str]) -> str:
